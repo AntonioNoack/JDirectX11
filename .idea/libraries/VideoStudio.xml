@@ -1,0 +1,18 @@
+<component name="libraryTable">
+  <library name="VideoStudio">
+    <CLASSES>
+      <root url="jar://$PROJECT_DIR$/../VideoStudio/out/artifacts/Universal/VideoStudio.jar!/" />
+    </CLASSES>
+    <JAVADOC>
+      <root url="jar://$PROJECT_DIR$/../VideoStudio/out/artifacts/Universal/VideoStudio.jar!/" />
+    </JAVADOC>
+    <SOURCES>
+      <root url="file://$PROJECT_DIR$/../VideoStudio/src" />
+      <root url="file://$PROJECT_DIR$/../VideoStudio/src" />
+      <root url="file://$PROJECT_DIR$/../VideoStudio/src" />
+      <root url="file://$PROJECT_DIR$/../VideoStudio/src" />
+      <root url="file://$PROJECT_DIR$/../VideoStudio/src" />
+      <root url="file://$PROJECT_DIR$/../VideoStudio/src" />
+    </SOURCES>
+  </library>
+</component>
