@@ -23,7 +23,7 @@
 hs_err_pid*
 replay_pid*
 
-cpp/
+./cpp/
 cpp5/
 cpp6/DirectX11v6/.vs/
 cpp6/DirectX11v6/x64/
