@@ -9,7 +9,8 @@ public class Framebuffer {
     public Texture depth, stencil;
     @Nullable
     public Texture[] cubeSides;// = new Texture[6];
-    public int enabledColorTargets = 1;
+    public int enabledDrawTargets = 1;
+    public int enabledReadTargets = 1;
 
     public long getSize() {
         for (Texture tex : colors) {

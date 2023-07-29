@@ -11,8 +11,8 @@ import java.io.File;
 
 public class DirectX {
 
-    // todo write a function OpenGL driver based on DirectX :)
-    // todo write the main parts in ... ?
+    // write a function OpenGL driver based on DirectX :)
+    // write the main parts in ... ?
 
     public static native void swapBuffers(long window);
 
@@ -28,7 +28,7 @@ public class DirectX {
 
     public static void attachDirectX() {
         GL11C.nullTexture.colorRTV = doAttachDirectX();
-        GL11C.nullFramebuffer.enabledColorTargets = 1;
+        GL11C.nullFramebuffer.enabledDrawTargets = 1;
     }
 
     public static native long doAttachDirectX();
@@ -98,8 +98,6 @@ public class DirectX {
 
     public static native void setWindowTitle(long window, String title);
 
-    public static native void setWindowIcon(long window, int width, int height, long pixels);
-
     public static native void updateViewport(float vx, float vy, float vw, float vh, float zMin, float zMax);
 
     public static native long createTexture2DMS(int samples, int internalFormat, int width, int height);
@@ -127,7 +125,7 @@ public class DirectX {
 
     public static native void doBindUniforms(long vertexShader, long dataPointer, int dataLength);
 
-    public static native void setBlendState(int blendState);
+    public static native void setPipelineState(int blendState, int depthState, int stencilState, int culling);
 
     public static native void generateMipmaps(long ptr);
 

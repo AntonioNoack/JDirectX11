@@ -189,9 +189,9 @@ void mouseButtonCallback(Window* window, jint button, jint action) {
 	}
 }
 
-int eventDepth = 0;
 
-const char* getEventType(UINT msg) {
+
+const char* GetEventType(UINT msg) {
 	switch (msg) {
 	case WM_CREATE: return "WM_CREATE";
 	case WM_KEYDOWN: return "WM_KEYDOWN";
@@ -250,16 +250,14 @@ const char* getEventType(UINT msg) {
 	}
 }
 
-#include <thread>
-
 LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam)
 {
-
+	static int eventDepth = 0;
 	for (int i = 0; i < eventDepth; i++) std::cout << "  ";
-	const char* type = getEventType(msg);
+	const char* type = GetEventType(msg);
 	std::cout << "Event " << type;
 	if (type == "?") std::cout << "(" << msg << ")";
-	std::cout << ", " << wparam << ", " << lparam << ", @" << std::this_thread::get_id() << std::endl;
+	std::cout << ", " << wparam << ", " << lparam << std::endl;
 	eventDepth++;
 	
 	LRESULT result = 0;
@@ -618,24 +616,6 @@ void CreateDeviceAndContext(Window& window) {
 	assert(SUCCEEDED(hResult));
 	baseDeviceContext->Release();
 
-	D3D11_RASTERIZER_DESC desc = {
-		D3D11_FILL_SOLID, // fill-mode
-		D3D11_CULL_NONE, // disable culling							| 3
-		true, // FrontCounterClockwise, we have to test this...
-		0, // depth-bias,
-		0.0f, 0.0f, // depth-bias clamp, slope-scaled-depth-bias,
-		true, // depth-clip-enable									| 2
-		false, // scissor enable,									| 2
-		false, // multi-sample enable,								| 2
-		false, // anti-aliased lines enable							| 2
-	};
-
-	ID3D11RasterizerState* state;
-	hResult = window.device->CreateRasterizerState(&desc, &state);
-	assert(SUCCEEDED(hResult));
-	window.deviceContext->RSSetState(state);
-	state->Release();
-
 }
 
 void CreateSwapChain(Window& window) {
@@ -740,6 +720,65 @@ void SetupDebugging(Window& window) {
 
 #pragma endregion Context
 
+#pragma region DepthStencil
+
+ID3D11DepthStencilState* CreateDepthStencilState(uint8_t depthBits) {
+	D3D11_DEPTH_STENCIL_DESC desc;
+
+	// Depth test parameters
+	desc.DepthWriteMask = (D3D11_DEPTH_WRITE_MASK)((depthBits >> 3) & 1); // | 2
+	desc.DepthFunc = (D3D11_COMPARISON_FUNC)((depthBits & 7) + 1); // | 8
+	desc.DepthEnable = desc.DepthFunc != D3D11_COMPARISON_ALWAYS;
+	/*
+	D3D11_COMPARISON_NEVER	= 1,
+	D3D11_COMPARISON_LESS	= 2,
+	D3D11_COMPARISON_EQUAL	= 3,
+	D3D11_COMPARISON_LESS_EQUAL	= 4,
+	D3D11_COMPARISON_GREATER	= 5,
+	D3D11_COMPARISON_NOT_EQUAL	= 6,
+	D3D11_COMPARISON_GREATER_EQUAL	= 7,
+	D3D11_COMPARISON_ALWAYS	= 8
+	*/
+
+	// Stencil test parameters
+	desc.StencilEnable = false;						// | 2
+	desc.StencilReadMask = 0xFF;						// | 256
+	desc.StencilWriteMask = 0xFF;						// | 256
+
+	/* can OpenGL do this, too? -> yes xD
+	D3D11_STENCIL_OP_KEEP	= 1,
+	D3D11_STENCIL_OP_ZERO	= 2,
+	D3D11_STENCIL_OP_REPLACE	= 3,
+	D3D11_STENCIL_OP_INCR_SAT	= 4,
+	D3D11_STENCIL_OP_DECR_SAT	= 5,
+	D3D11_STENCIL_OP_INVERT	= 6,
+	D3D11_STENCIL_OP_INCR	= 7,
+	D3D11_STENCIL_OP_DECR	= 8
+	*/
+	// Stencil operations if pixel is front-facing
+	desc.FrontFace.StencilFailOp = D3D11_STENCIL_OP_KEEP;
+	desc.FrontFace.StencilDepthFailOp = D3D11_STENCIL_OP_INCR;
+	desc.FrontFace.StencilPassOp = D3D11_STENCIL_OP_KEEP;
+	desc.FrontFace.StencilFunc = D3D11_COMPARISON_ALWAYS;
+
+	// Stencil operations if pixel is back-facing
+	desc.BackFace.StencilFailOp = D3D11_STENCIL_OP_KEEP;
+	desc.BackFace.StencilDepthFailOp = D3D11_STENCIL_OP_DECR;
+	desc.BackFace.StencilPassOp = D3D11_STENCIL_OP_KEEP;
+	desc.BackFace.StencilFunc = D3D11_COMPARISON_ALWAYS;
+
+	// Create depth stencil state
+	ID3D11DepthStencilState* state;
+	HRESULT hr = currentWindow->device->CreateDepthStencilState(&desc, &state);
+	if (FAILED(hr)) {
+		PrintError(hr, "CreateDepthStencilState");
+		return 0;
+	}
+	return state;
+}
+
+#pragma endregion DepthStencil
+
 #pragma region Blending
 
 ID3D11BlendState* CreateSimpleBlendState(jint id) {
@@ -749,7 +788,7 @@ ID3D11BlendState* CreateSimpleBlendState(jint id) {
 	// flags 2 -> 2
 	desc.AlphaToCoverageEnable = (id & 1) != 0;   //				 | 2
 	desc.IndependentBlendEnable = false; //							 | 1, if disabled, all targets will use 0th value
-	desc.RenderTarget[0].BlendEnable = (id & 2) != 0; //					 | 1?, only needs one special value
+	desc.RenderTarget[0].BlendEnable = (id & 2) != 0; //	         | 1?, only needs one special value
 
 	// blend op 6 -> 8
 	desc.RenderTarget[0].BlendOp = (D3D11_BLEND_OP)((id >> 2) & 7); //      | 5, +, -, rev-, min, max
@@ -773,13 +812,13 @@ ID3D11BlendState* CreateSimpleBlendState(jint id) {
 		D3D11_BLEND_INV_SRC1_COLOR	= 17,
 		D3D11_BLEND_SRC1_ALPHA	= 18,
 		D3D11_BLEND_INV_SRC1_ALPHA	= 19 */
-	desc.RenderTarget[0].SrcBlend = (D3D11_BLEND)((id >> 8) & 31); //      | 19
+	desc.RenderTarget[0].SrcBlend = (D3D11_BLEND)((id >> 8) & 31); //       | 19
 	desc.RenderTarget[0].SrcBlendAlpha = (D3D11_BLEND)((id >> 13) & 31); // | 19
 	desc.RenderTarget[0].DestBlend = (D3D11_BLEND)((id >> 18) & 31); //		| 19
 	desc.RenderTarget[0].DestBlendAlpha = (D3D11_BLEND)((id >> 23) & 31);// | 19
 
 	// mask, unused
-	desc.RenderTarget[0].RenderTargetWriteMask = D3D11_COLOR_WRITE_ENABLE_ALL; // rgba bitmask, r=1,g=2,b=4,a=8
+	desc.RenderTarget[0].RenderTargetWriteMask = (UINT8) ((id >> 28) & 15); // rgba bitmask, r=1,g=2,b=4,a=8
 	// possibilities: 19^4 * 100 = 12M, or upto ^8, if separate blending is used
 
 	ID3D11BlendState* result;
@@ -842,19 +881,74 @@ ID3D11BlendState* CreateComplexBlendState(JNIEnv* env, jintArray ids) {
 
 #include <unordered_map>
 
-JNIEXPORT void JNICALL Java_me_anno_directx11_DirectX_setBlendState
-(JNIEnv*, jclass, jint state) {
-	static std::unordered_map<jint, ID3D11BlendState*> blendStates = {};
-	Window* window = currentWindow;
-	if (!window || !window->device) return;
-	if (!blendStates[state]) {
-		blendStates[state] = CreateSimpleBlendState(state);
+ID3D11RasterizerState* CreateCullState(Window* window, jint culling) {
+	D3D11_RASTERIZER_DESC desc = {
+		D3D11_FILL_SOLID, // fill-mode
+		(D3D11_CULL_MODE) (culling + 1), // disable culling			| 3
+		true, // FrontCounterClockwise, we have to test this...
+		0, // depth-bias,
+		0.0f, 0.0f, // depth-bias clamp, slope-scaled-depth-bias,
+		true, // depth-clip-enable									| 2
+		false, // scissor enable,									| 2
+		false, // multi-sample enable,								| 2
+		false, // anti-aliased lines enable							| 2
+	};
+
+	ID3D11RasterizerState* state;
+	HRESULT hResult = window->device->CreateRasterizerState(&desc, &state);
+	if (FAILED(hResult)) {
+		PrintError(hResult, "CreateRasterizerState");
+		return 0;
 	}
-	FLOAT blendFactor = 0;
-	currentWindow->deviceContext->OMSetBlendState(blendStates[state], &blendFactor, -1);
+	return state;
 }
 
-#pragma engregion Blending
+JNIEXPORT void JNICALL Java_me_anno_directx11_DirectX_setPipelineState
+(JNIEnv*, jclass, jint blendState, jint depthState, jint stencilState, jint culling) {
+	static std::unordered_map<jint, ID3D11BlendState*> blendStates = {};
+	static ID3D11DepthStencilState* depthStates[16] = {};
+	static ID3D11RasterizerState* cullStates[3] = {};
+
+	static jint lastBlendState = -1, lastDepthState = -1, lastCulling = -1;
+
+	Window* window = currentWindow;
+	if (!window || !window->device || !window->deviceContext) return;
+
+	// blending
+	if(lastBlendState != blendState) {
+		ID3D11BlendState* blendState1 = blendStates[blendState];
+		if (!blendState1) {
+			blendStates[blendState] = blendState1 = CreateSimpleBlendState(blendState);
+		}
+		FLOAT blendFactor = 0;
+		currentWindow->deviceContext->OMSetBlendState(blendState1, &blendFactor, -1);
+		lastBlendState = blendState;
+	}
+
+	// depth and stencil
+	if(lastDepthState != depthState) {
+		ID3D11DepthStencilState* depthState1 = depthStates[depthState];
+		if (!depthState1) {
+			depthStates[depthState] = depthState1 = CreateDepthStencilState(depthState);
+		}
+		UINT stencilRef = 0;// stencil comparsion value
+		currentWindow->deviceContext->OMSetDepthStencilState(depthState1, stencilRef);
+		lastDepthState = depthState;
+	}
+
+	// culling
+	if(lastCulling != culling) {
+		ID3D11RasterizerState* cullState1 = cullStates[culling];
+		if (!cullState1) {
+			cullStates[culling] = cullState1 = CreateCullState(window, culling);
+		}
+		window->deviceContext->RSSetState(cullState1);
+		lastCulling = culling;
+	}
+
+}
+
+#pragma endregion Blending
 
 #pragma region Framebuffers
 
@@ -881,7 +975,7 @@ JNIEXPORT void JNICALL Java_me_anno_directx11_DirectX_updateViewport
 	// jint height = winRect.bottom - winRect.top;
 	// std::cout << "Drawing " << x << "," << y << " += " << w << " x " << h << " / " << width << " x " << height << std::endl;
 	currentWindow->deviceContext->RSSetViewports(1, &viewport);
-	CheckLastError("SetViewport");
+	// CheckLastError("SetViewport");
 }
 
 JNIEXPORT void JNICALL Java_me_anno_directx11_DirectX_getFramebufferSize(JNIEnv* env, jclass, jlong handle, jintArray x, jintArray y) {
@@ -982,6 +1076,7 @@ ID3D11SamplerState* simpleSamplers[512];
 std::unordered_map<uint64_t, ID3D11SamplerState*> coloredSamplers;
 
 D3D11_FILTER simpleFilters[18] = {
+	D3D11_FILTER_MIN_MAG_MIP_POINT,
 	D3D11_FILTER_MIN_MAG_POINT_MIP_LINEAR,
 	D3D11_FILTER_MIN_POINT_MAG_LINEAR_MIP_POINT,
 	D3D11_FILTER_MIN_POINT_MAG_MIP_LINEAR,
@@ -990,7 +1085,6 @@ D3D11_FILTER simpleFilters[18] = {
 	D3D11_FILTER_MIN_MAG_LINEAR_MIP_POINT,
 	D3D11_FILTER_MIN_MAG_MIP_LINEAR,
 	D3D11_FILTER_ANISOTROPIC,
-	D3D11_FILTER_MIN_MAG_MIP_POINT,
 	D3D11_FILTER_COMPARISON_MIN_MAG_MIP_POINT,
 	D3D11_FILTER_COMPARISON_MIN_MAG_POINT_MIP_LINEAR,
 	D3D11_FILTER_COMPARISON_MIN_POINT_MAG_LINEAR_MIP_POINT,
@@ -1864,29 +1958,35 @@ JNIEXPORT jint JNICALL Java_me_anno_directx11_DirectX_doBindVAO
 		jlong buffer = 0;
 		env->GetLongArrayRegion(buffers, i, 1, &buffer);
 		if (((enabled & mask) != 0) && (buffer != 0)) {
+
 			jint stride = 0;
 			jint offset = 0;
 			jbyte channel = 0;
 			jint type = 0;
+
 			env->GetIntArrayRegion(types, i, 1, &type);
 			env->GetIntArrayRegion(strides, i, 1, &stride);
 			env->GetByteArrayRegion(channels, i, 1, &channel);
 			env->GetIntArrayRegion(offsets, i, 1, &offset);
+
 			if (buffer == 0) {
 				std::cerr << "Enabled buffer " << i << " is null" << std::endl;
 				return -6;
 			}
+
 			bool normalized1 = (normalized & mask) != 0;
 			if (type < 0x1400 || type > 0x1406 || channel < 1 || channel > 4) {
-				std::cerr << "Unsupported attribute format: {type: " << type << ", ch: " << channel << ", norm: " << normalized1 << "}" << std::endl;
+				std::cerr << "Unsupported attribute format: {name: " << attrName << ", type: " << type << ", ch: " << (int) channel << ", norm: " << normalized1 << "}" << std::endl;
 				return -4;
 			}
+
 			int formatIndex = ((type - 0x1400) << 3) + ((channel - 1) << 1) + (normalized1 ? 1 : 0);
 			DXGI_FORMAT format = formatMap[formatIndex];
 			if (format == DXGI_FORMAT_UNKNOWN) {
-				std::cerr << "Unsupported attribute format: {type: " << type << ", ch: " << channel << ", norm: " << normalized1 << "}" << std::endl;
+				std::cerr << "Unsupported attribute format: {name: " << attrName << ", type: " << type << ", ch: " << (int) channel << ", norm: " << normalized1 << "}" << std::endl;
 				return -5;
 			}
+
 			key.bindings[i] = (offset * 151) | (format << 1) | (isPerInstance ? 1 : 0);
 			layoutElements[i] = D3D11_INPUT_ELEMENT_DESC {
 				attrName,

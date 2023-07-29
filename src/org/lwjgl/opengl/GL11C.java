@@ -2,6 +2,10 @@ package org.lwjgl.opengl;
 
 import kotlin.NotImplementedError;
 import me.anno.directx11.DirectX;
+import me.anno.gpu.buffer.SimpleBuffer;
+import me.anno.gpu.shader.GLSLType;
+import me.anno.gpu.shader.OpenGLShader;
+import me.anno.gpu.shader.builder.VariableMode;
 import me.anno.utils.pooling.ByteBufferPool;
 import me.anno.utils.types.Floats;
 import org.lwjgl.opengl.custom.Buffer;
@@ -9,9 +13,7 @@ import org.lwjgl.opengl.custom.*;
 import org.lwjgl.system.MemoryUtil;
 
 import java.nio.*;
-import java.util.ArrayList;
-import java.util.HashSet;
-import java.util.List;
+import java.util.*;
 
 import static org.lwjgl.opengl.GL11.GL_VERSION;
 import static org.lwjgl.opengl.GL15.GL_ARRAY_BUFFER;
@@ -19,6 +21,7 @@ import static org.lwjgl.opengl.GL15.GL_ELEMENT_ARRAY_BUFFER;
 import static org.lwjgl.opengl.GL20.*;
 import static org.lwjgl.opengl.GL30.*;
 import static org.lwjgl.opengl.GL43.*;
+import static org.lwjgl.opengl.GL44.GL_MIRROR_CLAMP_TO_EDGE;
 import static org.lwjgl.opengl.GL45.GL_NEGATIVE_ONE_TO_ONE;
 import static org.lwjgl.opengl.GL45.GL_ZERO_TO_ONE;
 
@@ -150,6 +153,8 @@ public class GL11C {
         p.attributes.put(name.toString(), location);
     }
 
+    private static final Variable flippedYVariable = new Variable("float", "gl_FlippedY", new int[0]);
+
     public static void glLinkProgram(int program) {
         Program p = programs.get(program);
         if (p.compute != null) throw new NotImplementedError();
@@ -158,6 +163,8 @@ public class GL11C {
         HashSet<CharSequence> tokens = joinTokens(vt.getFunctions(), ft.getFunctions());
         join(vt.getUniforms(), ft.getUniforms(), tokens);
         join(vt.getVaryings(), ft.getVaryings(), tokens);
+        vt.getUniforms().add(flippedYVariable);
+        ft.getUniforms().add(flippedYVariable);
         String fsSource = p.fragment.translator.emitProgramShader(p, 0);
         p.fragmentP = DirectX.compilePixelShader(fsSource);
         if (p.fragmentP == 0L) throw new IllegalStateException("Fragment shader didn't compile properly");
@@ -206,7 +213,6 @@ public class GL11C {
     public static void glUseProgram(int program) {
         if (program != currentProgram.index) {
             currentProgram = programs.get(program);
-            hasValidVAO = false; // DirectX-specific
         }
     }
 
@@ -221,6 +227,10 @@ public class GL11C {
         return idx == null ? -1 : idx;
     }
 
+    private static boolean enableCulling = false, enableDepthTest = false,
+            enableStencilTest = false, enableScissorTest = false,
+            enableDepthMask = false;
+
     public static void glEnable(int mode) {
         // todo store state for rendering
         switch (mode) {
@@ -232,12 +242,16 @@ public class GL11C {
             case GL_LINE_SMOOTH:
                 break;
             case GL_CULL_FACE:
+                enableCulling = true;
                 break;
             case GL_DEPTH_TEST:
+                enableDepthTest = true;
                 break;
             case GL_STENCIL_TEST:
+                enableStencilTest = true;
                 break;
             case GL_SCISSOR_TEST:
+                enableScissorTest = true;
                 break;
             default:
                 System.out.println("Unknown enable/disable mode");
@@ -255,62 +269,39 @@ public class GL11C {
             case GL_LINE_SMOOTH:
                 break;
             case GL_CULL_FACE:
+                enableCulling = false;
                 break;
             case GL_DEPTH_TEST:
+                enableDepthTest = false;
                 break;
             case GL_STENCIL_TEST:
+                enableStencilTest = false;
                 break;
             case GL_SCISSOR_TEST:
+                enableScissorTest = false;
                 break;
             default:
                 System.out.println("Unknown enable/disable mode");
         }
     }
 
-    private static int blendState;
+    private static int blendState = (15 << 28);
     private static final int[] blendStates = new int[8];
 
+    private static final int[] blendOps = new int[]{1, 4, 5, 0, 2, 3};
+
     private static int blendOp(int gl) {
-        switch (gl) {
-            case GL_FUNC_ADD:
-                return 1;
-            case GL_FUNC_SUBTRACT:
-                return 2;
-            case GL_FUNC_REVERSE_SUBTRACT:
-                return 3;
-            case GL_MIN:
-                return 4;
-            case GL_MAX:
-                return 5;
-            default:
-                throw new NotImplementedError("Unknown type");
-        }
+        int op = blendOps[gl - GL_FUNC_ADD];
+        if (op == 0) throw new NotImplementedError("Unknown type");
+        return op;
     }
 
     private static int blend(int op) {
+        if (op == 0 || op == 1) return op + 1;
+        if (op >= GL_SRC_COLOR && op <= GL_SRC_ALPHA_SATURATE) {
+            return op - GL_SRC_COLOR + 3;
+        }
         switch (op) {
-            case GL_ZERO:
-                return 1;
-            case GL_ONE:
-                return 2;
-            case GL_SRC_COLOR:
-                return 3;
-            case GL_ONE_MINUS_SRC_COLOR:
-                return 4;
-            case GL_SRC_ALPHA:
-                return 5;
-            case GL_ONE_MINUS_SRC_ALPHA:
-                return 6;
-            case GL_DST_ALPHA:
-                return 7;
-            case GL_ONE_MINUS_DST_ALPHA:
-                return 8;
-            case GL_DST_COLOR:
-                return 9;
-            case GL_ONE_MINUS_DST_COLOR:
-                return 10;
-            case GL_SRC_ALPHA_SATURATE:
-                return 11;
             case GL_CONSTANT_COLOR:
                 return 14;
             case GL_ONE_MINUS_CONSTANT_COLOR:
@@ -380,13 +371,13 @@ public class GL11C {
 
     public static void glClear(int mask) {
         if ((mask & GL_COLOR_BUFFER_BIT) != 0) {
-            int index = Integer.numberOfTrailingZeros(currentFramebuffer.enabledColorTargets);
-            Texture tex = currentFramebuffer.colors[index];
+            int index = Integer.numberOfTrailingZeros(drawFramebuffer.enabledDrawTargets);
+            Texture tex = drawFramebuffer.colors[index];
             long ptr = tex == null ? 0 : tex.colorRTV;
             if (ptr != 0) DirectX.clearColor(ptr, cr, cg, cb, ca);
         }
         if ((mask & (GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT)) != 0) {
-            Texture tex = currentFramebuffer.depth;
+            Texture tex = drawFramebuffer.depth;
             long ptr = tex == null ? 0 : tex.depthStencilRTV;
             if (ptr != 0) DirectX.clearDepth(ptr, cd, cs,
                     ((mask & GL_DEPTH_BUFFER_BIT) >> 8) + // depth is 256, becomes 1
@@ -426,6 +417,7 @@ public class GL11C {
         if (target == GL_ARRAY_BUFFER) currABuffer = buffers.get(buffer);
         else if (target == GL_ELEMENT_ARRAY_BUFFER) currEBuffer = buffers.get(buffer);
         else if (target == GL_PIXEL_UNPACK_BUFFER) {
+            if (buffer != 0) throw new IllegalArgumentException();
             // idk... we don't use this
         } else throw new IllegalArgumentException("Unexpected buffer type " + buffer);
     }
@@ -507,8 +499,6 @@ public class GL11C {
         vaos.add(currentVAO);
     }
 
-    static boolean hasValidVAO = false;
-
     public static void glVertexAttribPointer(int index, int channels, int type, boolean norm, int stride, long ptr) {
         VAO vao = currentVAO;
         vao.channels[index] = (byte) channels;
@@ -518,11 +508,14 @@ public class GL11C {
         if (ptr > Integer.MAX_VALUE) throw new IllegalArgumentException("Offset must be i32");
         vao.offsets[index] = (int) ptr;
         vao.buffers[index] = currABuffer;
-        hasValidVAO = false;
     }
 
     public static void glVertexAttrib1f(int index, float value) {
         if (value != 0f) throw new IllegalArgumentException("Only zero is supported");
+    }
+
+    public static void glVertexAttribI1i(int index, int value) {
+        if (value != 0) throw new IllegalArgumentException();
     }
 
     private static long setFlag(long l, boolean value, long mask) {
@@ -534,22 +527,19 @@ public class GL11C {
     }
 
     public static void glVertexAttribIPointer(int index, int channels, int type, int stride, long ptr) {
-        glVertexAttribPointer(index, channels, ~type, false, stride, ptr);
+        glVertexAttribPointer(index, channels, type, false, stride, ptr);
     }
 
     public static void glVertexAttribDivisor(int index, int divisor) {
         currentVAO.perInstance = setFlag(currentVAO.perInstance, divisor > 0, 1 << index);
-        hasValidVAO = false; // not really necessary, as it would be very unlikely that only this property is changing
     }
 
     public static void glEnableVertexAttribArray(int index) {
         currentVAO.enabled |= 1L << index;
-        hasValidVAO = false;
     }
 
     public static void glDisableVertexAttribArray(int index) {
         currentVAO.enabled &= ~(1L << index);
-        hasValidVAO = false;
     }
 
     private static final LongBuffer texBuffer =
@@ -561,17 +551,24 @@ public class GL11C {
 
     private static boolean bindBeforeDrawing() {
 
-        int totalH = (int) currentFramebuffer.getSize();
-        DirectX.updateViewport(vx, totalH - (vy + vh), vw, vh, zMin, zMax);
+        Program p = currentProgram;
+        boolean flipped = drawFramebuffer != nullFramebuffer;
+        int loc = glGetUniformLocation(p.index, flippedYVariable.getName());
+        if (loc >= 0) glUniform1f(loc, flipped ? -1f : +1f);
+
+        if (flipped) {
+            DirectX.updateViewport(vx, vy, vw, vh, zMin, zMax);
+        } else {
+            int totalH = (int) drawFramebuffer.getSize();
+            DirectX.updateViewport(vx, totalH - (vy + vh), vw, vh, zMin, zMax);
+        }
 
         VAO vao = currentVAO;
-        Program p = currentProgram;
         int pvi = DirectX.calculateProgramVariation(vao);
         ProgramVariation pv = getVariation(p, pvi);
 
         int vaoRet = DirectX.bindVAO(p, pv, vao);
-        hasValidVAO = vaoRet == 0;
-        if (!hasValidVAO) {
+        if (vaoRet != 0) {
             if (vaoRet != -7) System.err.println("Invalid VAO! " + vaoRet);
             return false;
         }
@@ -583,20 +580,86 @@ public class GL11C {
             Texture tex = boundTextures[p.texMap[i]];
             texBuffer.put(i, tex.pointer);
             if (tex.sampler == -1) {
-                // todo recalculate sampler
-                tex.sampler = 0;
+                // recalculate sampler id
+                 /*
+                D3D11_FILTER_MIN_MAG_MIP_POINT,
+                D3D11_FILTER_MIN_MAG_POINT_MIP_LINEAR,
+                D3D11_FILTER_MIN_POINT_MAG_LINEAR_MIP_POINT,
+                D3D11_FILTER_MIN_POINT_MAG_MIP_LINEAR,
+                D3D11_FILTER_MIN_LINEAR_MAG_MIP_POINT,
+                D3D11_FILTER_MIN_LINEAR_MAG_POINT_MIP_LINEAR,
+                D3D11_FILTER_MIN_MAG_LINEAR_MIP_POINT,
+                D3D11_FILTER_MIN_MAG_MIP_LINEAR,
+                D3D11_FILTER_ANISOTROPIC,
+                D3D11_FILTER_COMPARISON_MIN_MAG_MIP_POINT,
+                D3D11_FILTER_COMPARISON_MIN_MAG_POINT_MIP_LINEAR,
+                D3D11_FILTER_COMPARISON_MIN_POINT_MAG_LINEAR_MIP_POINT,
+                D3D11_FILTER_COMPARISON_MIN_POINT_MAG_MIP_LINEAR,
+                D3D11_FILTER_COMPARISON_MIN_LINEAR_MAG_MIP_POINT,
+                D3D11_FILTER_COMPARISON_MIN_LINEAR_MAG_POINT_MIP_LINEAR,
+                D3D11_FILTER_COMPARISON_MIN_MAG_LINEAR_MIP_POINT,
+                D3D11_FILTER_COMPARISON_MIN_MAG_MIP_LINEAR,
+                D3D11_FILTER_COMPARISON_ANISOTROPIC,
+                * */
+                // 0x2600 = nearest, 0x2601 = linear, 0x2703 = lin-mip-lin
+                int filterIdx = (tex.magFilter << 16) | tex.minFilter;
+                int compIdx = 0;
+                if (filterIdx == 0x26002703) { // GPUFiltering.NEAREST
+                    // MIN_POINT_MAG_MIP_LINEAR
+                    filterIdx = 3;
+                }/* else if (filterId == 0x26002600) {
+                    // MIN_MAG_MIP_POINT
+                    filterId = 0;
+                }*/ else if (filterIdx == 0x26012703) {
+                    // MIN_MAG_MIP_LINEAR
+                    filterIdx = 7;
+                } else if (filterIdx == 0x26012601) {
+                    // MIN_MAG_LINEAR_MIP_POINT
+                    filterIdx = 6;
+                } else {
+                    // MIN_MAG_MIP_POINT
+                    // -> ok for now + case for 0x26002600
+                    if (filterIdx != 0x26002600) {
+                        System.err.println("Unknown filter! " + Integer.toHexString(filterIdx));
+                    }
+                    filterIdx = 0;
+                }
+                /* D3D11_TEXTURE_ADDRESS_WRAP,
+                D3D11_TEXTURE_ADDRESS_MIRROR,
+                D3D11_TEXTURE_ADDRESS_CLAMP,
+                D3D11_TEXTURE_ADDRESS_BORDER,
+                D3D11_TEXTURE_ADDRESS_MIRROR_ONCE */
+                int addrMode = tex.wrapS; // clamping
+                if (addrMode == GL_REPEAT) { // repeat
+                    addrMode = 0;
+                } else if (addrMode == GL_MIRRORED_REPEAT) {
+                    addrMode = 1;
+                } else if (addrMode == GL_CLAMP_TO_EDGE) { // clamp to edge
+                    addrMode = 2;
+                } else if (addrMode == GL_CLAMP_TO_BORDER) { // clamp to edge
+                    addrMode = 3;
+                } else if (addrMode == GL_MIRROR_CLAMP_TO_EDGE) {
+                    addrMode = 4;
+                } else addrMode = 0;
+                // todo if is using depth comparison, add compIdx value
+                tex.sampler = (compIdx << 6) | (addrMode << 4) | filterIdx;
             }
             texBuffer.put(i + numTextures, tex.sampler);
         }
 
-        DirectX.setBlendState(blendState);
+        int depthState = enableDepthMask ? 8 : 0;
+        if (enableDepthTest && depthFunc >= 512 && depthFunc < 519) {
+            // the order is the same as in DirectX :3, and we can even mask :3
+            depthState |= (depthFunc & 7);
+        } else depthState |= 7; // always
+        int stencilState = 0; // todo support stencils... if we need them...
+        int cullState = (enableCulling && cullMode != GL_FRONT_AND_BACK) ? (cullMode == GL_FRONT) != (flipped) ? 1 : 2 : 0; // front / back / none
+        DirectX.setPipelineState(blendState, depthState, stencilState, cullState);
 
-        DirectX.bindTextures(numTextures, MemoryUtil.memAddress(texBuffer));
-        DirectX.setShaders(pv.vertexP, p.fragmentP);
-
-        Framebuffer fb = currentFramebuffer;
+        // must be set before the textures, or they will be set to zero, if there is resource overlap
+        Framebuffer fb = drawFramebuffer;
         // todo what about disabled RTVs??? set them null???
-        int numRTVs = Integer.bitCount(fb.enabledColorTargets);
+        int numRTVs = Integer.bitCount(fb.enabledDrawTargets);
         for (int i = 0; i < numRTVs; i++) {
             Texture tex = fb.colors[i];
             colorRTVs[i] = tex == null ? 0 : tex.colorRTV;
@@ -604,6 +667,10 @@ public class GL11C {
         Texture dTex = fb.depth;
         long depthStencilRTV = dTex == null ? 0 : dTex.depthStencilRTV;
         DirectX.setRenderTargets(numRTVs, colorRTVs, depthStencilRTV);
+
+        DirectX.bindTextures(numTextures, MemoryUtil.memAddress(texBuffer));
+        DirectX.setShaders(pv.vertexP, p.fragmentP);
+
         return true;
     }
 
@@ -660,10 +727,19 @@ public class GL11C {
         framebuffers.add(nullFramebuffer);
     }
 
-    private static Framebuffer currentFramebuffer = nullFramebuffer;
+    private static Framebuffer
+            drawFramebuffer = nullFramebuffer,
+            readFramebuffer = nullFramebuffer;
 
     public static void glBindFramebuffer(int target, int fb) {
-        currentFramebuffer = framebuffers.get(fb);
+        Framebuffer framebuffer = framebuffers.get(fb);
+        if (target == GL_FRAMEBUFFER) {
+            drawFramebuffer = readFramebuffer = framebuffer;
+        } else if (target == GL_READ_FRAMEBUFFER) {
+            readFramebuffer = framebuffer;
+        } else if (target == GL_DRAW_FRAMEBUFFER) {
+            drawFramebuffer = framebuffer;
+        } else throw new NotImplementedError();
     }
 
     public static int glGenFramebuffers() {
@@ -751,7 +827,7 @@ public class GL11C {
     }
 
     public static void glFramebufferTexture2D(int target, int attachment, int texTarget, int texture, int level) {
-        Framebuffer fb = currentFramebuffer;
+        Framebuffer fb = drawFramebuffer;
         Texture tex = textures.get(texture);
         glFramebufferTexture2D(fb, attachment, tex, level);
     }
@@ -779,12 +855,17 @@ public class GL11C {
     }
 
     public static void glFramebufferRenderbuffer(int target, int attachment, int rbTarget, int renderbuffer) {
-        glFramebufferTexture2D(currentFramebuffer, attachment, renderbuffers.get(renderbuffer), 0);
+        glFramebufferTexture2D(drawFramebuffer, attachment, renderbuffers.get(renderbuffer), 0);
     }
 
     public static void glDrawBuffer(int attachment) {
         int colorIndex = attachment - GL_COLOR_ATTACHMENT0;
-        currentFramebuffer.enabledColorTargets = attachment == GL_NONE ? 0 : 1 << colorIndex;
+        drawFramebuffer.enabledDrawTargets = attachment == GL_NONE ? 0 : 1 << colorIndex;
+    }
+
+    public static void glReadBuffer(int attachment) {
+        int colorIndex = attachment - GL_COLOR_ATTACHMENT0;
+        readFramebuffer.enabledReadTargets = attachment == GL_NONE ? 0 : 1 << colorIndex;
     }
 
     public static void glDrawBuffers(int[] attachments) {
@@ -794,7 +875,7 @@ public class GL11C {
             int colorIndex = attachment - GL_COLOR_ATTACHMENT0;
             sum |= 1 << colorIndex;
         }
-        currentFramebuffer.enabledColorTargets = sum;
+        drawFramebuffer.enabledDrawTargets = sum;
     }
 
     public static void glBindImageTexture(int a, int b, int c, boolean d, int e, int f, int g) {
@@ -814,14 +895,94 @@ public class GL11C {
         return GL_FRAMEBUFFER_COMPLETE;
     }
 
+    private static me.anno.gpu.shader.Shader blitShader = null;
+    private static final Framebuffer dstTmp = new Framebuffer();
+
     public static void glBlitFramebuffer(
-            int x0, int y0, int w0, int h0,
-            int x1, int y1, int w1, int h1,
+            int x0, int y0, int w0, int h0, // src
+            int x1, int y1, int w1, int h1, // dst
             int mask, int filtering
     ) {
-        // todo run copy shader ...
-        // todo if is multi-sampled -> single-sampled, ResolveSubresource can be used
-        throw new NotImplementedError();
+
+        // todo if is multisampled, accumulate all samples
+        // todo for depth, avg or median?
+        if (blitShader == null) {
+            blitShader = new me.anno.gpu.shader.Shader(
+                    "Blit",
+                    Arrays.asList(
+                            new me.anno.gpu.shader.builder.Variable(GLSLType.V2F, "coords", VariableMode.ATTR),
+                            new me.anno.gpu.shader.builder.Variable(GLSLType.V4F, "dstPos")
+                    ),
+                    "void main(){\n" +
+                            "   gl_Position = vec4(coords*2.0-1.0, 0.5, 1.0);\n" +
+                            "   uv = dstPos.xy + coords * dstPos.zw;\n" +
+                            "}\n",
+                    Collections.singletonList(
+                            new me.anno.gpu.shader.builder.Variable(GLSLType.V4F, "uv")
+                    ),
+                    Arrays.asList(
+                            new me.anno.gpu.shader.builder.Variable(GLSLType.S2D, "colorTex"),
+                            new me.anno.gpu.shader.builder.Variable(GLSLType.S2D, "depthTex"),
+                            new me.anno.gpu.shader.builder.Variable(GLSLType.V4F, "result", VariableMode.OUT)
+                    ),
+                    "void main(){\n" +
+                            "   result = texture(colorTex,uv);\n" +
+                            "   gl_FragDepth = texture(depthTex,uv);\n" +
+                            "}\n"
+            );
+            blitShader.setTextureIndices("colorTex", "depthTex");
+        }
+
+        // save old state
+        int x = vx, y = vy, w = vw, h = vh;
+        int blendState0 = blendState;
+        boolean depthMask0 = enableDepthMask;
+        boolean depthTest0 = enableDepthTest;
+        Texture tex0 = boundTextures[0];
+        Texture tex1 = boundTextures[1];
+        Program program0 = currentProgram;
+        Framebuffer src = readFramebuffer;
+        Framebuffer dst = drawFramebuffer;
+        int program0i = OpenGLShader.Companion.getLastProgram();
+
+        // set correct state
+        enableDepthMask = (mask & GL_DEPTH_BUFFER_BIT) != 0;
+        enableDepthTest = false;
+        glViewport(x1, y1, w1, h1);
+        glDisable(GL_BLEND);
+        boolean writeColors = (mask & GL_COLOR_BUFFER_BIT) != 0;
+        glColorMaski(0, writeColors, writeColors, writeColors, writeColors);
+
+        if (writeColors) {
+            // find the bit in src and in dst for reading and writing
+            int readIdx = Integer.numberOfTrailingZeros(src.enabledReadTargets);
+            int drawIdx = Integer.numberOfTrailingZeros(dst.enabledDrawTargets);
+            boundTextures[0] = src.colors[readIdx];
+            dstTmp.colors[0] = dst.colors[drawIdx];
+        }
+        boundTextures[1] = src.depth;
+
+        me.anno.gpu.shader.Shader shader = blitShader;
+        shader.use();
+
+        long srcSize = src.getSize();
+        float srcW = (int) (srcSize >>> 32), srcH = (int) srcSize;
+        shader.v4f("dstPos", x0 / srcW, y0 / srcH, w0 / srcW, h0 / srcH);
+
+        // todo set color mask: don't draw, if we don't have color bit set
+        drawFramebuffer = dstTmp;
+
+        SimpleBuffer.flat01.draw(shader);
+        // restore old state
+        glViewport(x, y, w, h);
+        blendState = blendState0;
+        boundTextures[0] = tex0;
+        boundTextures[1] = tex1;
+        enableDepthMask = depthMask0;
+        enableDepthTest = depthTest0;
+        drawFramebuffer = dst;
+        currentProgram = program0;
+        OpenGLShader.Companion.setLastProgram(program0i);
     }
 
     public static void glDeleteFramebuffers(int fbi) {
@@ -877,10 +1038,28 @@ public class GL11C {
             int dFormat, int dType, IntBuffer dataOrNull) {
         Texture tex = currentTexture;
         destroyExistingTexture(tex);
+        if (dataOrNull != null && iFormat == GL_RGB8) {
+            iFormat = GL_RGBA8;
+        }
         tex.format = iFormat;
         tex.width = w;
         tex.height = h;
-        if (dataOrNull != null && iFormat == GL_RGB8) throw new NotImplementedError("Insert alpha");
+        tex.pointer = dataOrNull == null ?
+                DirectX.createTexture2DMS(1, iFormat, w, h) :
+                DirectX.createTexture2D(1, iFormat, w, h, dFormat, dType, MemoryUtil.memAddress(dataOrNull));
+    }
+
+    public static void glTexImage2D(
+            int target, int level, int iFormat, int w, int h, int border,
+            int dFormat, int dType, ShortBuffer dataOrNull) {
+        Texture tex = currentTexture;
+        destroyExistingTexture(tex);
+        if (dataOrNull != null && iFormat == GL_RGB8) {
+            iFormat = GL_RGBA8;
+        }
+        tex.format = iFormat;
+        tex.width = w;
+        tex.height = h;
         tex.pointer = dataOrNull == null ?
                 DirectX.createTexture2DMS(1, iFormat, w, h) :
                 DirectX.createTexture2D(1, iFormat, w, h, dFormat, dType, MemoryUtil.memAddress(dataOrNull));
@@ -890,6 +1069,9 @@ public class GL11C {
                                     int dFormat, int dType, int[] dataOrNull) {
         Texture tex = currentTexture;
         destroyExistingTexture(tex);
+        if (dataOrNull != null && iFormat == GL_RGB8) {
+            iFormat = GL_RGBA8;
+        }
         tex.format = iFormat;
         tex.width = w;
         tex.height = h;
@@ -943,6 +1125,22 @@ public class GL11C {
     ) {
         glTexSubImage2D(target, level, x0, y0, dx, dy, format, type,
                 MemoryUtil.memAddressSafe(buffer), (long) buffer.remaining() << 2);
+    }
+
+    public static void glTexSubImage2D(
+            int target, int level, int x0, int y0, int dx, int dy,
+            int format, int type, ShortBuffer buffer
+    ) {
+        glTexSubImage2D(target, level, x0, y0, dx, dy, format, type,
+                MemoryUtil.memAddressSafe(buffer), (long) buffer.remaining() << 1);
+    }
+
+    public static void glTexSubImage2D(
+            int target, int level, int x0, int y0, int dx, int dy,
+            int format, int type, ByteBuffer buffer
+    ) {
+        glTexSubImage2D(target, level, x0, y0, dx, dy, format, type,
+                MemoryUtil.memAddressSafe(buffer), buffer.remaining());
     }
 
     public static void glTexSubImage2D(
@@ -1028,8 +1226,7 @@ public class GL11C {
 
     // todo bind these
     //  https://learn.microsoft.com/en-us/windows/win32/direct3d11/d3d10-graphics-programming-guide-depth-stencil
-    private static int depthFunc;
-    private static boolean depthMask;
+    private static int depthFunc = 0;
     private static int cullMode = 0;
 
     public static void glDepthFunc(int func) {
@@ -1037,7 +1234,16 @@ public class GL11C {
     }
 
     public static void glDepthMask(boolean enabled) {
-        depthMask = enabled;
+        enableDepthMask = enabled;
+    }
+
+    public static void glColorMaski(int index, boolean r, boolean g, boolean b, boolean a) {
+        int mask = (r ? 1 : 0) | (g ? 2 : 0) | (b ? 4 : 0) | (a ? 8 : 0);
+        blendState = (blendState & ~(15 << 28)) | (mask << 28);
+    }
+
+    public static void glColorMask(boolean r, boolean g, boolean b, boolean a) {
+        glColorMaski(0, r, g, b, a);
     }
 
     public static void glCullFace(int mode) {
@@ -1149,12 +1355,36 @@ public class GL11C {
     }
 
     public static void glUniformMatrix4x3fv(int pos, boolean transpose, FloatBuffer src) {
-        // todo is this supported in HLSL?
+
+        // todo respect uniform size limits
+
         if (transpose) throw new IllegalArgumentException();
         ByteBuffer dst = currentProgram.uniformBuffer;
         if (printUniforms) System.out.println("[" + currentProgram.index + "," + pos + "]=mat4x3(...)");
-        for (int i = pos, j = src.position(), i1 = pos + 48; i < i1; i += 4, j++) {
-            dst.putFloat(i, src.get(j));
+
+        int len = src.remaining() / 12;
+        int j = src.position();
+        for (int i = 0; i < len; i++) {
+
+            dst.putFloat(pos, src.get(j));
+            dst.putFloat(pos + 4, src.get(j + 1));
+            dst.putFloat(pos + 8, src.get(j + 2));
+
+            dst.putFloat(pos + 16, src.get(j + 3));
+            dst.putFloat(pos + 20, src.get(j + 4));
+            dst.putFloat(pos + 24, src.get(j + 5));
+
+            dst.putFloat(pos + 32, src.get(j + 6));
+            dst.putFloat(pos + 36, src.get(j + 7));
+            dst.putFloat(pos + 40, src.get(j + 8));
+
+            dst.putFloat(pos + 48, src.get(j + 9));
+            dst.putFloat(pos + 52, src.get(j + 10));
+            dst.putFloat(pos + 56, src.get(j + 11));
+
+            pos += 64;
+            j += 12;
+
         }
     }
 

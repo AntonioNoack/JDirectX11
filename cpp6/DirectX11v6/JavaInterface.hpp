@@ -257,11 +257,11 @@ extern "C" {
 
 	/*
 	 * Class:     me_anno_directx11_DirectX
-	 * Method:    setBlendState
-	 * Signature: (I)V
+	 * Method:    setPipelineState
+	 * Signature: (IIII)V
 	 */
-	JNIEXPORT void JNICALL Java_me_anno_directx11_DirectX_setBlendState
-	(JNIEnv*, jclass, jint);
+	JNIEXPORT void JNICALL Java_me_anno_directx11_DirectX_setPipelineState
+	(JNIEnv*, jclass, jint, jint, jint, jint);
 
 	/*
 	 * Class:     me_anno_directx11_DirectX

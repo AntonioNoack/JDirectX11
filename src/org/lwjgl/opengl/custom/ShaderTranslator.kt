@@ -64,12 +64,12 @@ class ShaderTranslator(val type: Int) {
         ) + texMap
 
         val typeSizeMap = hashMapOf(
-            "float" to 4, "vec2" to 8, "vec3" to 12, "vec4" to 16,
-            "int" to 4, "ivec2" to 8, "ivec3" to 12, "ivec4" to 16,
-            "bool" to 4, "bvec2" to 8, "bvec3" to 12, "bvec4" to 16, // a little wasteful...
-            "uint" to 4, "uvec2" to 8, "uvec3" to 12, "uvec4" to 16,
+            "float" to 4, "vec2" to 8, "vec3" to 16, "vec4" to 16,
+            "int" to 4, "ivec2" to 8, "ivec3" to 16, "ivec4" to 16,
+            "bool" to 4, "bvec2" to 8, "bvec3" to 16, "bvec4" to 16, // a little wasteful...
+            "uint" to 4, "uvec2" to 8, "uvec3" to 16, "uvec4" to 16,
             "void" to -1,
-            "mat2" to 16, "mat3" to 36, "mat4" to 64, "mat4x3" to 48, "mat3x4" to 48,
+            "mat2" to 16, "mat3" to 36, "mat4" to 64, "mat4x3" to 64, "mat3x4" to 48,
         )
 
         val wordMap = typeMap + hashMapOf(
@@ -86,6 +86,7 @@ class ShaderTranslator(val type: Int) {
     val uniforms = ArrayList<Variable>()
     val attributes = ArrayList<Variable>()
     val varyings = ArrayList<Variable>()
+    val constants = ArrayList<Pair<Variable, String>>()
     val layers = ArrayList<Variable>()
     val variables = ArrayList<Variable>()
 
@@ -167,10 +168,8 @@ class ShaderTranslator(val type: Int) {
             val numElements = v.appendDeclaration(type, r)
             r.append(";\n")
             p.uniforms[v.name] = pos
+            p.uniformSizes[pos] = size
             // special cases:
-            if (size == 12) {
-                pos += 4 * numElements
-            }
             pos += size * numElements
         }
         p.uniformSize = pos
@@ -257,9 +256,9 @@ class ShaderTranslator(val type: Int) {
             ti++
         }
 
+        val isWritingFragDepth = isFragment && functions.any { "gl_FragDepth" in it }
         if (isFragment) {
             r.append("struct PS_Output {\n")
-            // todo if is using gl_FragDepth=..., then add : DEPTH
             for (j in layers.indices) {
                 val v = layers[j]
                 val type = typeMap[v.type]!!
@@ -268,7 +267,18 @@ class ShaderTranslator(val type: Int) {
                 r.append(" : COLOR").append(j)
                 r.append(";\n")
             }
+            // if shader uses gl_FragDepth=..., then add : DEPTH
+            if (isWritingFragDepth) {
+                outputs.add(listOf("PS_Output", "float4", "gl_FragDepth"))
+                r.append("float4 gl_FragDepth : DEPTH;\n")
+            }
             r.append("};\n")
+        }
+
+        for ((const, value) in constants) {
+            r.append("static const ")
+            const.appendDeclaration(typeMap[const.type]!!, r)
+            r.append(" = ").append(value).append(";\n")
         }
 
         var oldMain: List<CharSequence>? = null
@@ -345,6 +355,9 @@ class ShaderTranslator(val type: Int) {
                     newFunc.add(")) discard;\n")
                 } else {
                     newFunc.add(");\n")
+                }
+                if (isVertex) {
+                    newFunc.add("output.gl_Position.y *= gl_FlippedY;\n")
                 }
                 newFunc.add(" return output;\n")
                 newFunc.add("}")
@@ -546,7 +559,7 @@ class ShaderTranslator(val type: Int) {
                     val common = tokens.subList(i, k - 2)
                     i = k
                     k = tokens.indexOf2(",", i, false) + 1
-                    while (k<j){
+                    while (k < j) {
                         list.add(parseVariable(common + tokens.subList(i, k - 1)))
                         i = k
                         k = tokens.indexOf2(",", i, false) + 1
@@ -567,6 +580,15 @@ class ShaderTranslator(val type: Int) {
                 "in" -> readVariables(inList)
                 "out" -> readVariables(outList)
                 "uniform" -> readVariables(uniforms)
+                "const" -> {
+                    val j = tokens.indexOf2(";", i, false) + 1
+                    val k = tokens.indexOf2("=", i, false)
+                    if (k > j) throw IllegalStateException()
+                    val variable = parseVariable(tokens.subList(i, k))
+                    val value = tokens.subList(k + 1, j - 1).joinToString(" ") { wordMap[it] ?: it }
+                    constants.add(variable to value)
+                    i = j
+                }
 
                 "layout" -> {
                     // layout(std140, shared, binding = 0)

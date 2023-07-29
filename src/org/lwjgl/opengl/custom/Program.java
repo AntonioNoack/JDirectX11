@@ -17,6 +17,7 @@ public class Program {
     public final HashMap<String, Integer> attributes = new HashMap<>();
     public final ArrayList<Attribute> attributes1 = new ArrayList<>();
     public final HashMap<String, Integer> uniforms = new HashMap<>();
+    public final HashMap<Integer, Integer> uniformSizes = new HashMap<>();
     public int[] texMap;
 
     public final HashMap<Integer, ProgramVariation> variations = new HashMap<>();
