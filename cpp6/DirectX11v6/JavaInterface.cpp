@@ -1153,6 +1153,7 @@ JNIEXPORT void JNICALL Java_me_anno_directx11_DirectX_bindTextures
 	for (uint32_t i = 0; i < (uint32_t) numTextures; i++) {
 		textureViews[i] = textures[i]->textureView;
 		samplerStates[i] = getSampler(window, samplers[i + numTextures]);
+		// std::cerr << "Binding[" << i << "] " << std::hex << textureViews[i] << "/" << samplerStates[i] << std::dec << std::endl;
 	}
 
 	ctx->PSSetShaderResources(0, numTextures, textureViews);

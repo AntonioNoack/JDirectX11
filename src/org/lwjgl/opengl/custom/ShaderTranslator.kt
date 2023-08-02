@@ -78,7 +78,7 @@ class ShaderTranslator(val type: Int) {
             "bool" to 4, "bvec2" to 8, "bvec3" to 16, "bvec4" to 16, // a little wasteful...
             "uint" to 4, "uvec2" to 8, "uvec3" to 16, "uvec4" to 16,
             "void" to -1,
-            "mat2" to 16, "mat3" to 36, "mat4" to 64, "mat4x3" to 64, "mat3x4" to 48,
+            "mat2" to 16, "mat3" to 48, "mat4" to 64, "mat4x3" to 64, "mat3x4" to 48,
         )
 
         val wordMap = typeMap + hashMapOf(
@@ -249,10 +249,10 @@ class ShaderTranslator(val type: Int) {
             vsOutputList.add(listOf("VS_Output", "float4", "gl_FragCoord"))
             r.append("  uint gl_InstanceID : SV_InstanceID;\n")
             vsOutputList.add(listOf("VS_Output", "uint", "gl_InstanceID"))
-            // todo what is the issue with this???
-            //r.append("  bool gl_FrontFacing : SV_IsFrontFace;\n")
-            //vsOutputList.add(listOf("VS_Output", "bool", "gl_FrontFacing"))
-            r.append("#define gl_FrontFacing true\n")
+            // this property needs to be inverted (except if not flippedY)
+            r.append("  bool gl_FrontFacing0 : SV_IsFrontFace;\n")
+            r.append("#define gl_FrontFacing (gl_FrontFacing0 != (gl_FlippedY<0.0))\n")
+            vsOutputList.add(listOf("VS_Output", "bool", "gl_FrontFacing0"))
         }
         r.append("};\n")
 
