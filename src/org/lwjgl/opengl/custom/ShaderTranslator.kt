@@ -64,6 +64,15 @@ class ShaderTranslator(val type: Int) {
         ) + texMap
 
         val typeSizeMap = hashMapOf(
+            "float" to 4, "vec2" to 8, "vec3" to 12, "vec4" to 16,
+            "int" to 4, "ivec2" to 8, "ivec3" to 12, "ivec4" to 16,
+            "bool" to 4, "bvec2" to 8, "bvec3" to 12, "bvec4" to 16, // a little wasteful...
+            "uint" to 4, "uvec2" to 8, "uvec3" to 12, "uvec4" to 16,
+            "void" to -1,
+            "mat2" to 16, "mat3" to 36, "mat4" to 64, "mat4x3" to 64, "mat3x4" to 48,
+        )
+
+        val typeAlignmentMap = hashMapOf(
             "float" to 4, "vec2" to 8, "vec3" to 16, "vec4" to 16,
             "int" to 4, "ivec2" to 8, "ivec3" to 16, "ivec4" to 16,
             "bool" to 4, "bvec2" to 8, "bvec3" to 16, "bvec4" to 16, // a little wasteful...
@@ -164,15 +173,25 @@ class ShaderTranslator(val type: Int) {
                 typeSizeMap[v.type] ?: throw IllegalStateException("Missing type size for $v")
             }) {
             val size = typeSizeMap[v.type]!!
+            val alignment = typeAlignmentMap[v.type]!!
+            val padding = alignment - (pos % alignment)
+            if (padding != alignment) {
+                // add soo many bytes as padding
+                for (i in 0 until (padding ushr 2)) {
+                    r.append("  float __pad").append(pos).append(";\n")
+                    pos += 4
+                }
+            }
             val type = typeMap[v.type] ?: continue
             val numElements = v.appendDeclaration(type, r)
             r.append(";\n")
+            // r.append("; // ").append(pos).append(", align ").append(alignment).append("\n")
             p.uniforms[v.name] = pos
             p.uniformSizes[pos] = size
             // special cases:
             pos += size * numElements
         }
-        p.uniformSize = pos
+        p.uniformSize = (pos + 15).ushr(4).shl(4)
         r.append("};\n")
 
         if (isVertex) {
