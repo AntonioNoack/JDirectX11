@@ -338,7 +338,7 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam)
 	}
 	case WM_CHAR:
 	case WM_UNICHAR: { // todo what is deadchar?
-		if (wparam == UNICODE_NOCHAR) result = true; // requirement
+		if (wparam == UNICODE_NOCHAR || wparam < 32) result = true; // requirement
 		else if (window && window->charModsCallback) {
 			JNIEnv* env = nullptr;
 			jvm->AttachCurrentThread((void**)(&env), NULL);
@@ -1048,7 +1048,11 @@ JNIEXPORT jlong JNICALL Java_me_anno_directx11_DirectX_createDepthRTV
 		ID3D11DepthStencilView* rtv = nullptr;
 		Texture* tex1 = (Texture*)tex;
 		if (!tex1->texture) return 0;
-		HRESULT hr = device->CreateDepthStencilView(tex1->texture, nullptr, &rtv);
+		D3D11_DEPTH_STENCIL_VIEW_DESC desc{};
+		desc.Flags = 0;
+		desc.Format = tex1->depthFormat;// DXGI_FORMAT_D32_FLOAT;
+		desc.ViewDimension = D3D11_DSV_DIMENSION_TEXTURE2D; // use D3D11_DSV_DIMENSION_TEXTURE2DMS for multisampled targets?
+		HRESULT hr = device->CreateDepthStencilView(tex1->texture, &desc, &rtv);
 		if (FAILED(hr)) {
 			PrintError(hr, "CreateDepthStencilView");
 			return 0;
@@ -1300,20 +1304,54 @@ bool isDepthFormat(jint format) {
 	}
 }
 
+void mapDepthFormat(jint format, DXGI_FORMAT& dstTexFormat, DXGI_FORMAT& dstDscFormat, DXGI_FORMAT& dstRTVFormat) {
+	switch (format) {
+	case 0x81a5: // depth 16
+		dstTexFormat = DXGI_FORMAT_R16_TYPELESS;
+		dstDscFormat = DXGI_FORMAT_R16_UNORM;
+		dstRTVFormat = DXGI_FORMAT_D16_UNORM;
+		break;
+	case 0x81a6: // depth 24
+		dstTexFormat = DXGI_FORMAT_R24G8_TYPELESS;
+		dstDscFormat = DXGI_FORMAT_R24_UNORM_X8_TYPELESS;
+		dstRTVFormat = DXGI_FORMAT_D24_UNORM_S8_UINT;
+		break;
+	case 0x81a7: // depth 32
+	case 0x8cac: // depth 32f
+		dstTexFormat = DXGI_FORMAT_R32_TYPELESS;
+		dstDscFormat = DXGI_FORMAT_R32_FLOAT;
+		dstRTVFormat = DXGI_FORMAT_D32_FLOAT;
+		break;
+	case 0x8cad: // depth 32f, stencil 8
+		dstTexFormat = DXGI_FORMAT_R32G8X24_TYPELESS;
+		dstDscFormat = DXGI_FORMAT_R32_FLOAT_X8X24_TYPELESS;
+		dstRTVFormat = DXGI_FORMAT_D32_FLOAT_S8X24_UINT; // what is this X? unused?
+		break;
+	default:
+		std::cerr << "Unsupported texture format: " << format << std::endl;
+		dstTexFormat = dstDscFormat = dstRTVFormat = DXGI_FORMAT_UNKNOWN;
+	}
+}
+
 JNIEXPORT jlong JNICALL Java_me_anno_directx11_DirectX_createTexture2DMS
 (JNIEnv*, jclass, jint samples, jint format, jint width, jint height) {
 
 	// std::cerr << "Creating " << width << "x" << height << " texture with " << format << " format and " << samples << " samples" << std::endl;
-
-	DXGI_FORMAT format1 = mapTextureFormat(format);
 	bool isDF = isDepthFormat(format);
-	if (format1 == DXGI_FORMAT_UNKNOWN) return 0;
-	// std::cerr << "Mapped texture format from " << format << " to " << format1 << ", depth? " << isDF << std::endl;
+	DXGI_FORMAT texFormat = DXGI_FORMAT_UNKNOWN, dscFormat = DXGI_FORMAT_UNKNOWN, rtvFormat = DXGI_FORMAT_UNKNOWN;
+	if (isDF) {
+		mapDepthFormat(format, texFormat, dscFormat, rtvFormat);
+	}
+	else {
+		texFormat = mapTextureFormat(format);
+	}
+	if (texFormat == DXGI_FORMAT_UNKNOWN) return 0;
+	// std::cerr << "Mapped texture format from " << format << " to " << texFormat << ", depth? " << isDF << std::endl;
 
 	UINT maxSampleLevels = 1;
 	HRESULT hResult = 0;
 	if (samples > 1) {
-		hResult = currentWindow->device->CheckMultisampleQualityLevels(format1, (UINT)samples, &maxSampleLevels);
+		hResult = currentWindow->device->CheckMultisampleQualityLevels(texFormat, (UINT)samples, &maxSampleLevels);
 		if (FAILED(hResult)) maxSampleLevels = 1;
 		std::cerr << "Max sample levels for format: " << maxSampleLevels << std::endl;
 	}
@@ -1324,11 +1362,11 @@ JNIEXPORT jlong JNICALL Java_me_anno_directx11_DirectX_createTexture2DMS
 	textureDesc.Height = height;
 	textureDesc.MipLevels = 1; // todo generate mip levels?; 0 = auto :3
 	textureDesc.ArraySize = 1;
-	textureDesc.Format = format1;
+	textureDesc.Format = texFormat;
 	textureDesc.SampleDesc.Count = samples;
 	textureDesc.SampleDesc.Quality = maxSampleLevels - 1;
 	textureDesc.Usage = D3D11_USAGE_DEFAULT;
-	textureDesc.BindFlags = (isDF ? D3D11_BIND_DEPTH_STENCIL : D3D11_BIND_SHADER_RESOURCE | D3D11_BIND_RENDER_TARGET);
+	textureDesc.BindFlags = (isDF ? D3D11_BIND_DEPTH_STENCIL : D3D11_BIND_RENDER_TARGET) | D3D11_BIND_SHADER_RESOURCE;
 
 	// std::cout << "Creating texture" << std::endl;
 	ID3D11Texture2D* texture;
@@ -1339,17 +1377,31 @@ JNIEXPORT jlong JNICALL Java_me_anno_directx11_DirectX_createTexture2DMS
 	}
 
 	ID3D11ShaderResourceView* textureView = nullptr;
-	if (textureDesc.BindFlags & D3D11_BIND_SHADER_RESOURCE) {
-		// std::cout << "Creating texture view" << std::endl;
-		hResult = currentWindow->device->CreateShaderResourceView(texture, nullptr, &textureView);
-		if (FAILED(hResult)) {
-			PrintError(hResult, "CreateShaderResourceView");
-			return 0;
+	D3D11_SHADER_RESOURCE_VIEW_DESC* descPtr = nullptr;
+	D3D11_SHADER_RESOURCE_VIEW_DESC desc{};
+	if (isDF) {
+		desc.Format = dscFormat;
+		if (samples > 1) {
+			desc.ViewDimension = D3D11_SRV_DIMENSION_TEXTURE2DMS;
+			// nothing to do
 		}
+		else {
+			desc.ViewDimension = D3D11_SRV_DIMENSION_TEXTURE2D;
+			desc.Texture2D.MostDetailedMip = 0;
+			desc.Texture2D.MipLevels = -1;// all
+		}
+		descPtr = &desc;
+	}
+	
+	// std::cout << "Creating texture view" << std::endl;
+	hResult = currentWindow->device->CreateShaderResourceView(texture, descPtr, &textureView);
+	if (FAILED(hResult)) {
+		PrintError(hResult, "CreateShaderResourceView");
+		return 0;
 	}
 
 	CheckLastError("CreateTex2dMS");
-	Texture* tex = new Texture { texture, textureView };
+	Texture* tex = new Texture { texture, textureView, (UINT) samples, rtvFormat };
 	// std::cerr << "Created texture " << std::hex << tex << " -> {" << texture << ", " << textureView << "}" << std::dec << std::endl;
 	return (jlong) tex;
 }
@@ -1406,7 +1458,7 @@ JNIEXPORT jlong JNICALL Java_me_anno_directx11_DirectX_createTexture2Di
 	}
 
 	CheckLastError("CreateTex2di");
-	Texture* tex = new Texture { texture, textureView };
+	Texture* tex = new Texture { texture, textureView, (UINT) samples };
 	// std::cerr << "Created texture " << std::hex << tex << " -> {" << texture << ", " << textureView << "}" << std::dec << std::endl;
 	return (jlong)tex;
 
@@ -1465,7 +1517,7 @@ JNIEXPORT jlong JNICALL Java_me_anno_directx11_DirectX_createTexture2D
 	}
 
 	CheckLastError("CreateTex2d");
-	Texture* tex = new Texture{ texture, textureView };
+	Texture* tex = new Texture{ texture, textureView, (UINT) samples };
 	// std::cerr << "Created texture " << std::hex << tex << " -> {" << texture << ", " << textureView << "}" << std::dec << std::endl;
 	return (jlong)tex;
 
@@ -1625,7 +1677,7 @@ JNIEXPORT jlong JNICALL Java_me_anno_directx11_DirectX_createTexture3Di
 		}
 
 		CheckLastError("CreateTex2d[]i");
-		Texture* tex = new Texture{ texture, textureView };
+		Texture* tex = new Texture{ texture, textureView, (UINT) samples };
 		return (jlong)tex;
 
 	}
@@ -2015,7 +2067,7 @@ JNIEXPORT jint JNICALL Java_me_anno_directx11_DirectX_doBindVAO
 			layoutStrides[i] = 4;
 			layoutOffsets[i] = 0;
 			layoutBuffers[i] = window->nullBuffer;
-			std::cerr << "Missing buffer for attribute " << attrName << std::endl;
+			// std::cerr << "Missing buffer for attribute " << attrName << std::endl;
 		}
 
 		int format = layoutElements[i].Format;

@@ -25,6 +25,11 @@ import static org.lwjgl.opengl.GL44.GL_MIRROR_CLAMP_TO_EDGE;
 import static org.lwjgl.opengl.GL45.GL_NEGATIVE_ONE_TO_ONE;
 import static org.lwjgl.opengl.GL45.GL_ZERO_TO_ONE;
 
+// todo compute shaders
+// todo set cursor
+// todo trap cursor
+// todo dlss integration
+
 @SuppressWarnings({"unused", "ConstantConditions"})
 public class GL11C {
 
@@ -35,6 +40,8 @@ public class GL11C {
     public static int glGetInteger(int key) {
         // query this property
         // todo actually query these properties
+        // https://learn.microsoft.com/en-us/windows/win32/direct3d11/overviews-direct3d-11-resources-limits
+        // -> no need to query them?
         switch (key) {
             case GL_MAX_VERTEX_UNIFORM_COMPONENTS:
             case GL_MAX_FRAGMENT_UNIFORM_COMPONENTS:
@@ -50,7 +57,7 @@ public class GL11C {
                 // todo change back to 8, when we have implemented blitting
                 return 1;
             case GL_MAX_TEXTURE_SIZE:
-                return 2048;
+                return 16384;
             case GL_MAX_VERTEX_ATTRIBS:
                 return 16; // on my RTX 3070
             default:
