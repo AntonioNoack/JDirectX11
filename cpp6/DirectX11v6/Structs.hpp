@@ -45,5 +45,7 @@ struct Texture {
 
 	ID3D11Resource* texture = nullptr; // could be texture2d or texture3d
 	ID3D11ShaderResourceView* textureView = nullptr;
+	UINT samples;
+	DXGI_FORMAT depthFormat = DXGI_FORMAT_UNKNOWN;
 
 };
