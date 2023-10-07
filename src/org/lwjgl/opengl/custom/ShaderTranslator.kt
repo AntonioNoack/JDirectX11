@@ -168,7 +168,28 @@ class ShaderTranslator(val type: Int) {
         // assign them their correct byte offsets
         var pos = 0
         for (v in uniforms
-            .filter { v -> texMap[v.type] == null }
+            .filter { v -> texMap[v.type] == null && v.name in p.uniforms }
+            .sortedBy { v -> p.uniforms[v.name]!! }) {
+            val target = p.uniforms[v.name]!!
+            val size = typeSizeMap[v.type]!!
+            // add soo many bytes as padding
+            while (pos < target) {
+                r.append("  float __pad").append(pos).append(";\n")
+                pos += 4
+            }
+            val type = typeMap[v.type] ?: continue
+            val numElements = v.appendDeclaration(type, r)
+            r.append(";\n")
+            pos += size * numElements
+        }
+        // add padding to eliminate potential collisions between names and positions:
+        // every combination shall be valid
+        while (pos < p.uniformSize0) {
+            r.append("  float __pad").append(pos).append(";\n")
+            pos += 4
+        }
+        for (v in uniforms
+            .filter { v -> texMap[v.type] == null && v.name !in p.uniforms }
             .sortedByDescending { v ->
                 typeSizeMap[v.type] ?: throw IllegalStateException("Missing type size for $v")
             }) {
@@ -186,11 +207,13 @@ class ShaderTranslator(val type: Int) {
             val numElements = v.appendDeclaration(type, r)
             r.append(";\n")
             // r.append("; // ").append(pos).append(", align ").append(alignment).append("\n")
+            // println("U[" + p.index + ", " + v.name + "]=" + pos + ", +=" + size + "*" + numElements + ", old: ")
             p.uniforms[v.name] = pos
             p.uniformSizes[pos] = size
             // special cases:
             pos += size * numElements
         }
+        p.uniformSize0 = pos
         p.uniformSize = (pos + 15).ushr(4).shl(4)
         r.append("};\n")
 
@@ -463,6 +486,7 @@ class ShaderTranslator(val type: Int) {
                 "float3 uintBitsToFloat(uint3 v) { return float3(asfloat(v.x),asfloat(v.y),asfloat(v.z)); }\n" +
                 "float4 uintBitsToFloat(uint4 v) { return float4(asfloat(v.x),asfloat(v.y),asfloat(v.z),asfloat(v.w)); }\n" +
                 "float atan(float x, float y){ return atan2(x,y); }\n" + // luckily works :)
+                "#define mod(x,y) ((x)%(y))\n" +
                 str
 
         if (debug) {

@@ -881,7 +881,7 @@ ID3D11BlendState* CreateComplexBlendState(JNIEnv* env, jintArray ids) {
 
 #include <unordered_map>
 
-ID3D11RasterizerState* CreateCullState(Window* window, jint culling) {
+ID3D11RasterizerState* CreateCullState(Window* window, jint culling, jboolean scissor) {
 	D3D11_RASTERIZER_DESC desc = {
 		D3D11_FILL_SOLID, // fill-mode
 		(D3D11_CULL_MODE) (culling + 1), // disable culling			| 3
@@ -889,7 +889,7 @@ ID3D11RasterizerState* CreateCullState(Window* window, jint culling) {
 		0, // depth-bias,
 		0.0f, 0.0f, // depth-bias clamp, slope-scaled-depth-bias,
 		true, // depth-clip-enable									| 2
-		false, // scissor enable,									| 2
+		scissor, // scissor enable,									| 2
 		false, // multi-sample enable,								| 2
 		false, // anti-aliased lines enable							| 2
 	};
@@ -904,10 +904,10 @@ ID3D11RasterizerState* CreateCullState(Window* window, jint culling) {
 }
 
 JNIEXPORT void JNICALL Java_me_anno_directx11_DirectX_setPipelineState
-(JNIEnv*, jclass, jint blendState, jint depthState, jint stencilState, jint culling) {
+(JNIEnv*, jclass, jint blendState, jint depthState, jint stencilState, jint cullScissorState) {
 	static std::unordered_map<jint, ID3D11BlendState*> blendStates = {};
 	static ID3D11DepthStencilState* depthStates[16] = {};
-	static ID3D11RasterizerState* cullStates[3] = {};
+	static ID3D11RasterizerState* cullStates[8] = {};
 
 	static jint lastBlendState = -1, lastDepthState = -1, lastCulling = -1;
 
@@ -937,13 +937,15 @@ JNIEXPORT void JNICALL Java_me_anno_directx11_DirectX_setPipelineState
 	}
 
 	// culling
-	if(lastCulling != culling) {
-		ID3D11RasterizerState* cullState1 = cullStates[culling];
+	if(lastCulling != cullScissorState) {
+		ID3D11RasterizerState* cullState1 = cullStates[cullScissorState];
 		if (!cullState1) {
-			cullStates[culling] = cullState1 = CreateCullState(window, culling);
+			jint culling = cullScissorState & 3;
+			jboolean scissor = (cullScissorState & 4) != 0;
+			cullStates[cullScissorState] = cullState1 = CreateCullState(window, culling, scissor);
 		}
 		window->deviceContext->RSSetState(cullState1);
-		lastCulling = culling;
+		lastCulling = cullScissorState;
 	}
 
 }
@@ -976,6 +978,13 @@ JNIEXPORT void JNICALL Java_me_anno_directx11_DirectX_updateViewport
 	// std::cout << "Drawing " << x << "," << y << " += " << w << " x " << h << " / " << width << " x " << height << std::endl;
 	currentWindow->deviceContext->RSSetViewports(1, &viewport);
 	// CheckLastError("SetViewport");
+}
+
+JNIEXPORT void JNICALL Java_me_anno_directx11_DirectX_updateScissor
+(JNIEnv*, jclass, jfloat x, jfloat y, jfloat w, jfloat h) {
+	if (!currentWindow || !currentWindow->deviceContext) return;
+	D3D11_RECT rect = { x, y, w, h };
+	currentWindow->deviceContext->RSSetScissorRects(1, &rect);
 }
 
 JNIEXPORT void JNICALL Java_me_anno_directx11_DirectX_getFramebufferSize(JNIEnv* env, jclass, jlong handle, jintArray x, jintArray y) {
@@ -1699,6 +1708,75 @@ JNIEXPORT void JNICALL Java_me_anno_directx11_DirectX_generateMipmaps
 }
 
 #pragma endregion Textures
+
+#pragma region ReadPixels
+
+void readPixels(jint x, jint y, jint w, jint h, void* dst, size_t length, jlong tex, DXGI_FORMAT format) {
+
+	// TODO we need information about the texture, which format is to be used...
+	// TODO and we need to verify we don't access memory OOB
+
+	Window* window = currentWindow;
+	Texture* tex1 = (Texture*)tex;
+	if (!window || !tex1) return;
+	ID3D11Device1* device = window->device;
+	ID3D11DeviceContext1* deviceContext = window->deviceContext;
+	ID3D11Resource* tex2 = tex1->texture;
+	if (!device || !deviceContext || !tex2) return;
+
+	// Create a staging texture to hold the pixel data.
+	D3D11_TEXTURE2D_DESC desc{};
+	desc.Width = w;
+	desc.Height = h;
+	desc.MipLevels = 1;
+	desc.ArraySize = 1;
+	desc.Format = format;
+	desc.SampleDesc.Count = 1;
+	desc.SampleDesc.Quality = 0;
+	desc.Usage = D3D11_USAGE_STAGING;
+	desc.BindFlags = 0;
+	desc.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
+	desc.MiscFlags = 0;
+
+	ID3D11Texture2D* stagingTexture = nullptr;
+	device->CreateTexture2D(&desc, nullptr, &stagingTexture);
+	if (!stagingTexture) return;
+
+	// Copy the contents of the back buffer to the staging texture.
+	D3D11_BOX box{ x, y, 0, x + w, y + h, 1 };
+	deviceContext->CopySubresourceRegion(
+		stagingTexture, 0, 0, 0, 0,
+		tex2, 0, &box);
+
+	// Map the staging texture to access its data.
+	D3D11_MAPPED_SUBRESOURCE mappedResource{};
+	deviceContext->Map(stagingTexture, 0, D3D11_MAP_READ, 0, &mappedResource);
+
+	// Now, you can access the pixel data in the mappedResource.pData pointer.
+	memcpy(dst, mappedResource.pData, length);
+
+	// After you're done, unmap the staging texture and release it.
+	deviceContext->Unmap(stagingTexture, 0);
+	stagingTexture->Release();
+}
+
+JNIEXPORT void JNICALL Java_me_anno_directx11_DirectX_readPixelsI32
+(JNIEnv* env, jclass, jint x, jint y, jint w, jint h, jint format, jint type, jintArray dst, jlong texture) {
+	if (!dst || !texture || !currentWindow) return;
+	jint* dst1 = env->GetIntArrayElements(dst, nullptr);
+	readPixels(x, y, w, h, dst1, (size_t) env->GetArrayLength(dst) << 2, texture, DXGI_FORMAT_R8G8B8A8_UNORM);
+	env->ReleaseIntArrayElements(dst, dst1, 0);
+}
+
+JNIEXPORT void JNICALL Java_me_anno_directx11_DirectX_readPixelsF32
+(JNIEnv* env, jclass, jint x, jint y, jint w, jint h, jint format, jint type, jfloatArray dst, jlong texture) {
+	if (!dst || !texture || !currentWindow) return;
+	jfloat* dst1 = env->GetFloatArrayElements(dst, nullptr);
+	readPixels(x, y, w, h, dst1, (size_t)env->GetArrayLength(dst) << 2, texture, DXGI_FORMAT_R32_FLOAT);
+	env->ReleaseFloatArrayElements(dst, dst1, 0);
+}
+
+#pragma endregion ReadPixels
 
 #pragma region Buffers
 

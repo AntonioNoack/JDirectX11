@@ -29,6 +29,7 @@ public class Program {
 
     @Nullable
     public ByteBuffer uniformBuffer;
+	public int uniformSize0;
     public int uniformSize;
 
     public static class Attribute {

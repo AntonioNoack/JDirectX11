@@ -193,6 +193,14 @@ extern "C" {
 
 	/*
 	 * Class:     me_anno_directx11_DirectX
+	 * Method:    updateScissor
+	 * Signature: (FFFF)V
+	 */
+	JNIEXPORT void JNICALL Java_me_anno_directx11_DirectX_updateScissor
+	(JNIEnv*, jclass, jfloat, jfloat, jfloat, jfloat);
+
+	/*
+	 * Class:     me_anno_directx11_DirectX
 	 * Method:    createTexture2DMS
 	 * Signature: (IIII)J
 	 */
@@ -422,6 +430,22 @@ extern "C" {
 	 */
 	JNIEXPORT void JNICALL Java_me_anno_directx11_DirectX_getCursorPos
 	(JNIEnv*, jclass, jlong, jdoubleArray, jdoubleArray);
+
+	/*
+	 * Class:     me_anno_directx11_DirectX
+	 * Method:    readPixelsI32
+	 * Signature: (IIIIII[IJ)V
+	 */
+	JNIEXPORT void JNICALL Java_me_anno_directx11_DirectX_readPixelsI32
+	(JNIEnv*, jclass, jint, jint, jint, jint, jint, jint, jintArray, jlong tex);
+
+	/*
+	 * Class:     me_anno_directx11_DirectX
+	 * Method:    readPixelsF32
+	 * Signature: (IIIIII[FJ)V
+	 */
+	JNIEXPORT void JNICALL Java_me_anno_directx11_DirectX_readPixelsF32
+	(JNIEnv*, jclass, jint, jint, jint, jint, jint, jint, jfloatArray, jlong tex);
 
 #ifdef __cplusplus
 }
