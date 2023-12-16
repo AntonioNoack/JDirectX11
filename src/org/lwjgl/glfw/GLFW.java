@@ -1,7 +1,7 @@
 package org.lwjgl.glfw;
 
 import me.anno.directx11.DirectX;
-import me.anno.io.ResourceHelper;
+import me.anno.io.files.FileReference;
 import org.jetbrains.annotations.Nullable;
 
 import java.io.File;
@@ -26,7 +26,7 @@ public class GLFW {
 
     public static long glfwCreateWindow(int width, int height, @Nullable CharSequence name, long monitor, long sharedCtx) throws IOException {
         File tmp = File.createTempFile("icon", ".ico");
-        try (InputStream str = ResourceHelper.INSTANCE.loadResource("icon.ico")) {
+        try (InputStream str = FileReference.getReference("res://icon.ico").inputStreamSync()) {
             FileOutputStream fos = new FileOutputStream(tmp);
             byte[] tmp1 = new byte[1024];
             while (true) {

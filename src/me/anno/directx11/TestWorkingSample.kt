@@ -1,7 +1,7 @@
 package me.anno.directx11
 
 import me.anno.directx11.DirectX.*
-import me.anno.gpu.GFXBase
+import me.anno.gpu.RenderDoc.forceLoadRenderDoc
 import me.anno.utils.Color.b01
 import me.anno.utils.Color.g01
 import me.anno.utils.Color.r01
@@ -15,7 +15,7 @@ import kotlin.math.sin
 
 fun main() {
 
-    GFXBase.forceLoadRenderDoc()
+    forceLoadRenderDoc()
 
     val w = 800
     val h = 600

@@ -2060,6 +2060,7 @@ namespace std {
 }
 
 #include <unordered_map>
+#include <string>
 static std::unordered_map<LayoutKey, ID3D11InputLayout*> inputLayouts{};
 
 JNIEXPORT jint JNICALL Java_me_anno_directx11_DirectX_doBindVAO
@@ -2076,7 +2077,7 @@ JNIEXPORT jint JNICALL Java_me_anno_directx11_DirectX_doBindVAO
 	ID3D11Device* device = window->device;
 	ID3D11DeviceContext1* ctx = window->deviceContext;
 
-	LayoutKey key{ vertexShader->id };
+	LayoutKey key { vertexShader->id };
 	
 	UINT numAttr = vertexShader->numAttributes;
 	for (UINT i = 0; i < numAttr; i++) {
@@ -2099,11 +2100,6 @@ JNIEXPORT jint JNICALL Java_me_anno_directx11_DirectX_doBindVAO
 			env->GetIntArrayRegion(strides, i, 1, &stride);
 			env->GetByteArrayRegion(channels, i, 1, &channel);
 			env->GetIntArrayRegion(offsets, i, 1, &offset);
-
-			if (buffer == 0) {
-				std::cerr << "Enabled buffer " << i << " is null" << std::endl;
-				return -6;
-			}
 
 			bool normalized1 = (normalized & mask) != 0;
 			if (type < 0x1400 || type > 0x1406 || channel < 1 || channel > 4) {
@@ -2146,22 +2142,31 @@ JNIEXPORT jint JNICALL Java_me_anno_directx11_DirectX_doBindVAO
 			layoutStrides[i] = 4;
 			layoutOffsets[i] = 0;
 			layoutBuffers[i] = window->nullBuffer;
-			// std::cerr << "Missing buffer for attribute " << attrName << std::endl;
+			std::cerr << "Missing buffer for attribute " << attrName << ", using " << std::hex << window->nullBuffer << std::dec << std::endl;
 		}
 
-		int format = layoutElements[i].Format;
-		if(false) std::cerr << "layoutElements[" << i << "] = D3D11_INPUT_ELEMENT_DESC { \"" <<
-			layoutElements[i].SemanticName << "\", " <<
-			layoutElements[i].SemanticIndex << ", " <<
-			(format == 6 ? "DXGI_FORMAT_R32G32B32_FLOAT" :
-			 format == 16 ? "DXGI_FORMAT_R32G32_FLOAT" :
-			 format == 28 ? "DXGI_FORMAT_R8G8B8A8_UNORM" :
-			 "?") << ", " <<
-			layoutElements[i].InputSlot << ", " <<
-			layoutElements[i].AlignedByteOffset << ", " <<
-			(layoutElements[i].InputSlotClass == D3D11_INPUT_PER_INSTANCE_DATA ? "D3D11_INPUT_PER_INSTANCE_DATA" : "D3D11_INPUT_PER_VERTEX_DATA") << ", " <<
-			layoutElements[i].InstanceDataStepRate << " }; // buffer #" << std::hex << buffer << std::dec << std::endl;
-
+		if (true) {
+			int format = layoutElements[i].Format;
+			std::string formatNum = std::to_string(format);
+			std::cerr << "layoutElements[" << i << "] = D3D11_INPUT_ELEMENT_DESC { \"" <<
+				layoutElements[i].SemanticName << "\", " <<
+				layoutElements[i].SemanticIndex << ", " <<
+				(format == DXGI_FORMAT_R32G32B32_FLOAT ? "DXGI_FORMAT_R32G32B32_FLOAT" :
+				 format == DXGI_FORMAT_R32_FLOAT ? "DXGI_FORMAT_R32_FLOAT" :
+				 format == DXGI_FORMAT_R32G32_FLOAT ? "DXGI_FORMAT_R32G32_FLOAT" :
+				 format == DXGI_FORMAT_R16_FLOAT ? "DXGI_FORMAT_R16_FLOAT" :
+				 format == DXGI_FORMAT_R16G16_FLOAT ? "DXGI_FORMAT_R16G16_FLOAT" :
+				 format == DXGI_FORMAT_R8_UNORM ? "DXGI_FORMAT_R8_UNORM" :
+				 format == DXGI_FORMAT_R8G8_UNORM ? "DXGI_FORMAT_R8G8_UNORM" :
+				 format == DXGI_FORMAT_R8G8B8A8_UNORM ? "DXGI_FORMAT_R8G8B8A8_UNORM" :
+				 format == DXGI_FORMAT_R8G8B8A8_UINT ? "DXGI_FORMAT_R8G8B8A8_UINT" :
+				 format == DXGI_FORMAT_R8G8B8A8_SNORM ? "DXGI_FORMAT_R8G8B8A8_SNORM" :
+				 formatNum.c_str()) << ", " <<
+				layoutElements[i].InputSlot << ", " <<
+				layoutElements[i].AlignedByteOffset << ", " <<
+				(layoutElements[i].InputSlotClass == D3D11_INPUT_PER_INSTANCE_DATA ? "D3D11_INPUT_PER_INSTANCE_DATA" : "D3D11_INPUT_PER_VERTEX_DATA") << ", " <<
+				layoutElements[i].InstanceDataStepRate << " }; // buffer #" << std::hex << layoutBuffers[i] << std::dec << std::endl;
+		}
 	}
 
 	// auto t1 = std::chrono::high_resolution_clock::now();
@@ -2181,7 +2186,6 @@ JNIEXPORT jint JNICALL Java_me_anno_directx11_DirectX_doBindVAO
 		inputLayouts[key] = inputLayout;
 	}
 
-	// todo free previous layout
 	ctx->IASetInputLayout(inputLayout);
 	ctx->IASetVertexBuffers(0, numAttr, layoutBuffers, layoutStrides, layoutOffsets);
 	CheckLastError("BindVAO");

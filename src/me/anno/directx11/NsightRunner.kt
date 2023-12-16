@@ -1,8 +1,8 @@
 package me.anno.directx11
 
-import me.anno.gpu.GFXBase
+import me.anno.gpu.RenderDoc.disableRenderDoc
 
 fun main() {
-    GFXBase.disableRenderDoc()
+    disableRenderDoc()
     runDX11()
 }
