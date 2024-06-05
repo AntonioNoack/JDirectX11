@@ -392,6 +392,21 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam)
 		else DestroyWindow(hwnd);
 		break;
 	}
+	case WM_MOVE: {
+		if (window && window->posCallback) {
+			JNIEnv* env = nullptr;
+			jvm->AttachCurrentThread((void**)(&env), NULL);
+			jclass cbClass = env->FindClass("org/lwjgl/glfw/GLFWWindowPosCallbackI");
+			if (cbClass) {
+				jmethodID method = env->GetMethodID(cbClass, "invoke", "(JII)V");
+				jint posX = lparam & 0xffff;
+				jint posY = (lparam >> 16) & 0xffff;
+				if (method) env->CallVoidMethod(window->posCallback, method, (jlong)window, posX, posY);
+			}
+			jvm->DetachCurrentThread();
+		}
+		break;
+	}
 	case WM_SIZE: {
 		if (window && window->hwnd && (window->frameSizeCallback || window->iconifyCallback)) {
 			JNIEnv* env = nullptr;
@@ -615,6 +630,13 @@ void CreateDeviceAndContext(Window& window) {
 	hResult = baseDeviceContext->QueryInterface(__uuidof(ID3D11DeviceContext1), (void**)&window.deviceContext);
 	assert(SUCCEEDED(hResult));
 	baseDeviceContext->Release();
+
+	// todo disable for release
+	ID3D11Debug* debug = nullptr;
+	if (SUCCEEDED(baseDevice->QueryInterface(__uuidof(ID3D11Debug), reinterpret_cast<void**>(&debug)))) {
+		debug->ReportLiveDeviceObjects(D3D11_RLDO_SUMMARY | D3D11_RLDO_DETAIL);
+		debug->Release();
+	}
 
 }
 
@@ -1580,6 +1602,139 @@ JNIEXPORT void JNICALL Java_me_anno_directx11_DirectX_updateTexture2D
 
 }
 
+JNIEXPORT jlong JNICALL Java_me_anno_directx11_DirectX_createTexture3DMS
+(JNIEnv*, jclass, jint type, jint samples, jint format, jint width, jint height, jint depth) {
+
+	// types: 0 = 3d, 1 = tex2d[]
+	
+	std::cerr << "Creating " << width << "x" << height << "x" << depth << " texture3dms with " << format << " format and " << samples << " samples, type " << type << std::endl;
+	bool isDF = isDepthFormat(format);
+	DXGI_FORMAT texFormat = DXGI_FORMAT_UNKNOWN, dscFormat = DXGI_FORMAT_UNKNOWN, rtvFormat = DXGI_FORMAT_UNKNOWN;
+	if (isDF) {
+		mapDepthFormat(format, texFormat, dscFormat, rtvFormat);
+	}
+	else {
+		texFormat = mapTextureFormat(format);
+	}
+	if (texFormat == DXGI_FORMAT_UNKNOWN) return 0;
+	// std::cerr << "Mapped texture format from " << format << " to " << texFormat << ", depth? " << isDF << std::endl;
+
+	UINT maxSampleLevels = 1;
+	HRESULT hResult = 0;
+	if (samples > 1) {
+		hResult = currentWindow->device->CheckMultisampleQualityLevels(texFormat, (UINT)samples, &maxSampleLevels);
+		if (FAILED(hResult)) maxSampleLevels = 1;
+		std::cerr << "Max sample levels for format: " << maxSampleLevels << std::endl;
+	}
+
+	if (type == 0) {
+		// Create Texture
+		D3D11_TEXTURE3D_DESC textureDesc = {};
+		textureDesc.Width = width;
+		textureDesc.Height = height;
+		textureDesc.Depth = depth;
+		textureDesc.MipLevels = 1; // todo generate mip levels?; 0 = auto :3
+		// textureDesc.ArraySize = 1;
+		textureDesc.Format = texFormat;
+		// textureDesc.SampleDesc.Count = samples;
+		// textureDesc.SampleDesc.Quality = maxSampleLevels - 1;
+		textureDesc.Usage = D3D11_USAGE_DEFAULT;
+		textureDesc.BindFlags = (isDF ? D3D11_BIND_DEPTH_STENCIL : D3D11_BIND_RENDER_TARGET) | D3D11_BIND_SHADER_RESOURCE;
+
+		// std::cout << "Creating texture" << std::endl;
+		ID3D11Texture3D* texture;
+		hResult = currentWindow->device->CreateTexture3D(&textureDesc, nullptr, &texture);
+		if (FAILED(hResult)) {
+			PrintError(hResult, "CreateTexture3D");
+			return 0;
+		}
+
+		ID3D11ShaderResourceView* textureView = nullptr;
+		D3D11_SHADER_RESOURCE_VIEW_DESC* descPtr = nullptr;
+		D3D11_SHADER_RESOURCE_VIEW_DESC desc{};
+		if (isDF) {
+			desc.Format = dscFormat;
+			if (samples > 1) {
+				desc.ViewDimension = D3D11_SRV_DIMENSION_TEXTURE3D; // ms doesn't exist
+				// nothing to do
+			}
+			else {
+				desc.ViewDimension = D3D11_SRV_DIMENSION_TEXTURE3D;
+				desc.Texture3D.MostDetailedMip = 0;
+				desc.Texture3D.MipLevels = -1;// all
+			}
+			descPtr = &desc;
+		}
+
+		// std::cout << "Creating texture view" << std::endl;
+		hResult = currentWindow->device->CreateShaderResourceView(texture, descPtr, &textureView);
+		if (FAILED(hResult)) {
+			PrintError(hResult, "CreateShaderResourceView");
+			return 0;
+		}
+
+		CheckLastError("CreateTex3dMS");
+		Texture* tex = new Texture{ texture, textureView, (UINT)samples, rtvFormat };
+		// std::cerr << "Created texture " << std::hex << tex << " -> {" << texture << ", " << textureView << "}" << std::dec << std::endl;
+		return (jlong)tex;
+	}
+	else if (type == 1) {
+		// Create Texture
+		D3D11_TEXTURE2D_DESC textureDesc = {};
+		textureDesc.Width = width;
+		textureDesc.Height = height;
+		textureDesc.MipLevels = 1; // todo generate mip levels?; 0 = auto :3
+		textureDesc.ArraySize = depth;
+		textureDesc.Format = texFormat;
+		textureDesc.SampleDesc.Count = samples;
+		textureDesc.SampleDesc.Quality = maxSampleLevels - 1;
+		textureDesc.Usage = D3D11_USAGE_DEFAULT;
+		textureDesc.BindFlags = (isDF ? D3D11_BIND_DEPTH_STENCIL : D3D11_BIND_RENDER_TARGET) | D3D11_BIND_SHADER_RESOURCE;
+
+		// std::cout << "Creating texture" << std::endl;
+		ID3D11Texture2D* texture;
+		hResult = currentWindow->device->CreateTexture2D(&textureDesc, nullptr, &texture);
+		if (FAILED(hResult)) {
+			PrintError(hResult, "CreateTexture2D[]MS");
+			return 0;
+		}
+
+		ID3D11ShaderResourceView* textureView = nullptr;
+		D3D11_SHADER_RESOURCE_VIEW_DESC* descPtr = nullptr;
+		D3D11_SHADER_RESOURCE_VIEW_DESC desc{};
+		if (isDF) {
+			desc.Format = dscFormat;
+			if (samples > 1) {
+				desc.ViewDimension = D3D11_SRV_DIMENSION_TEXTURE2DMSARRAY;
+				// nothing to do
+			}
+			else {
+				desc.ViewDimension = D3D11_SRV_DIMENSION_TEXTURE2DARRAY;
+				desc.Texture2DArray.MostDetailedMip = 0;
+				desc.Texture2DArray.MipLevels = -1;// all
+				desc.Texture2DArray.FirstArraySlice = 0;
+				desc.Texture2DArray.ArraySize = depth;
+			}
+			descPtr = &desc;
+		}
+
+		// std::cout << "Creating texture view" << std::endl;
+		hResult = currentWindow->device->CreateShaderResourceView(texture, descPtr, &textureView);
+		if (FAILED(hResult)) {
+			PrintError(hResult, "CreateShaderResourceView2D[]MS");
+			return 0;
+		}
+
+		CheckLastError("CreateTex2D[]MS");
+		Texture* tex = new Texture{ texture, textureView, (UINT)samples, rtvFormat };
+		// std::cerr << "Created texture " << std::hex << tex << " -> {" << texture << ", " << textureView << "}" << std::dec << std::endl;
+		return (jlong)tex;
+	}
+	else {
+		return 0;
+	}
+}
+
 JNIEXPORT jlong JNICALL Java_me_anno_directx11_DirectX_createTexture3Di
 (JNIEnv* env, jclass, jint type, jint samples, jint format, jint width, jint height, jint depth, jint srcFormat, jint srcType, jintArray data) {
 
@@ -1688,6 +1843,117 @@ JNIEXPORT jlong JNICALL Java_me_anno_directx11_DirectX_createTexture3Di
 
 		CheckLastError("CreateTex2d[]i");
 		Texture* tex = new Texture{ texture, textureView, (UINT) samples };
+		return (jlong)tex;
+
+	}
+	else {
+		return 0;
+	}
+}
+
+JNIEXPORT jlong JNICALL Java_me_anno_directx11_DirectX_createTexture3Dp
+(JNIEnv* env, jclass, jint type, jint samples, jint format, jint width, jint height, jint depth, jint srcFormat, jint srcType, jlong data, jlong dataLength) {
+
+	// types: 0 = 3d, 1 = tex2d[]
+
+	std::cerr << "Creating " << width << "x" << height << "x" << depth << " texture3dp with " << format << " format and " <<
+		samples << " samples, type " << type << std::endl;
+
+	DXGI_FORMAT format1 = mapTextureFormat(format);
+	if (format1 == DXGI_FORMAT_UNKNOWN) return 0;
+	std::cerr << "Mapped texture format from " << format << " to " << format1 << std::endl;
+
+	UINT maxSampleLevels = 1;
+	HRESULT hResult = 0;
+	if (samples > 1) {
+		hResult = currentWindow->device->CheckMultisampleQualityLevels(format1, (UINT)samples, &maxSampleLevels);
+		if (FAILED(hResult)) maxSampleLevels = 1;
+		std::cerr << "Max sample levels for format: " << maxSampleLevels << std::endl;
+	}
+
+	if (type == 0) {
+
+		// Create Texture
+		D3D11_TEXTURE3D_DESC textureDesc = {};
+		textureDesc.Width = width;
+		textureDesc.Height = height;
+		textureDesc.Depth = depth;
+		textureDesc.MipLevels = 1; // todo generate mip levels?; 0 = auto :3
+		// textureDesc.ArraySize = 1;
+		textureDesc.Format = format1;
+		// textureDesc.SampleDesc.Count = samples;
+		// textureDesc.SampleDesc.Quality = maxSampleLevels - 1;
+		textureDesc.Usage = D3D11_USAGE_DEFAULT;
+		textureDesc.BindFlags = D3D11_BIND_SHADER_RESOURCE | D3D11_BIND_RENDER_TARGET;
+
+		D3D11_SUBRESOURCE_DATA textureSubresourceData = {};
+		textureSubresourceData.pSysMem = (void*) data;
+		textureSubresourceData.SysMemPitch = width * sizeof(jint);
+		textureSubresourceData.SysMemSlicePitch = (size_t)width * height * sizeof(jint);
+
+		ID3D11Texture3D* texture;
+		hResult = currentWindow->device->CreateTexture3D(&textureDesc, &textureSubresourceData, &texture);
+		if (FAILED(hResult)) {
+			PrintError(hResult, "CreateTexture3D");
+			return 0;
+		}
+
+		ID3D11ShaderResourceView* textureView;
+		hResult = currentWindow->device->CreateShaderResourceView(texture, nullptr, &textureView);
+		if (FAILED(hResult)) {
+			PrintError(hResult, "CreateShaderResourceView");
+			return 0;
+		}
+
+		CheckLastError("CreateTex3di");
+		Texture* tex = new Texture{ texture, textureView };
+		return (jlong)tex;
+
+	}
+	else if (type == 1) {
+
+		// Create Texture
+		D3D11_TEXTURE2D_DESC textureDesc = {};
+		textureDesc.Width = width;
+		textureDesc.Height = height;
+		textureDesc.ArraySize = depth;
+		textureDesc.MipLevels = 1; // todo generate mip levels?; 0 = auto :3
+		textureDesc.Format = format1;
+		textureDesc.SampleDesc.Count = samples;
+		textureDesc.SampleDesc.Quality = maxSampleLevels - 1;
+		textureDesc.Usage = D3D11_USAGE_DEFAULT;
+		textureDesc.BindFlags = D3D11_BIND_SHADER_RESOURCE | D3D11_BIND_RENDER_TARGET;
+
+		// we could keep the highest value to save allocations...
+		D3D11_SUBRESOURCE_DATA* textureSubresourceData = (D3D11_SUBRESOURCE_DATA*)calloc(depth, sizeof(D3D11_SUBRESOURCE_DATA));
+		if (!textureSubresourceData) {
+			return -1;
+		}
+
+		size_t slicePitch = (size_t)width * height * sizeof(jint);
+		for (int i = 0; i < depth; i++) {
+			textureSubresourceData[i].pSysMem = (UINT8*)data + i * slicePitch;
+			textureSubresourceData[i].SysMemPitch = width * sizeof(jint);
+			textureSubresourceData[i].SysMemSlicePitch = slicePitch;
+		}
+
+		ID3D11Texture2D* texture;
+		hResult = currentWindow->device->CreateTexture2D(&textureDesc, textureSubresourceData, &texture);
+		free(textureSubresourceData);
+		if (FAILED(hResult)) {
+			PrintError(hResult, "CreateTexture2D[]");
+			return 0;
+		}
+
+		ID3D11ShaderResourceView* textureView;
+		hResult = currentWindow->device->CreateShaderResourceView(texture, nullptr, &textureView);
+		if (FAILED(hResult)) {
+			PrintError(hResult, "CreateShaderResourceView");
+			return 0;
+		}
+
+		CheckLastError("CreateTex2d[]i");
+		Texture* tex = new Texture{ texture, textureView, (UINT)samples };
 		return (jlong)tex;
 
 	}
@@ -2145,7 +2411,7 @@ JNIEXPORT jint JNICALL Java_me_anno_directx11_DirectX_doBindVAO
 			std::cerr << "Missing buffer for attribute " << attrName << ", using " << std::hex << window->nullBuffer << std::dec << std::endl;
 		}
 
-		if (true) {
+		if (false) {
 			int format = layoutElements[i].Format;
 			std::string formatNum = std::to_string(format);
 			std::cerr << "layoutElements[" << i << "] = D3D11_INPUT_ELEMENT_DESC { \"" <<
@@ -2585,6 +2851,11 @@ JNIEXPORT void JNICALL Java_me_anno_directx11_DirectX_setFocusCallback
 JNIEXPORT void JNICALL Java_me_anno_directx11_DirectX_setIconifyCallback
 (JNIEnv* env, jclass, jlong windowPtr, jobject listener) {
 	SetListener(env, windowPtr ? &((Window*)windowPtr)->iconifyCallback : nullptr, listener);
+}
+
+JNIEXPORT void JNICALL Java_me_anno_directx11_DirectX_setPosCallback
+(JNIEnv* env, jclass, jlong windowPtr, jobject listener) {
+	SetListener(env, windowPtr ? &((Window*)windowPtr)->posCallback : nullptr, listener);
 }
 
 JNIEXPORT void JNICALL Java_me_anno_directx11_DirectX_setKeyCallback

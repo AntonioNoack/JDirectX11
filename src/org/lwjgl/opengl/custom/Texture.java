@@ -8,6 +8,7 @@ public class Texture {
     public long sampler = -1;
     public int wrapS, wrapT, wrapU;
     public int minFilter, magFilter;
+    public int depthMode = 0;
     // border color
     public float br, bg, bb, ba;
     public long colorRTV, depthStencilRTV;

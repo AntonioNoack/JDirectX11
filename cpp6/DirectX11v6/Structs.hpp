@@ -15,6 +15,7 @@ struct Window {
 	jobject frameSizeCallback = nullptr;
 	jobject focusCallback = nullptr;
 	jobject iconifyCallback = nullptr;
+	jobject posCallback = nullptr;
 	jobject refreshCallback = nullptr;
 	jobject contentScaleCallback = nullptr;
 	jobject dropCallback = nullptr;

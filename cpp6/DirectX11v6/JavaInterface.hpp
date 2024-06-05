@@ -249,6 +249,14 @@ extern "C" {
 
 	/*
 	 * Class:     me_anno_directx11_DirectX
+	 * Method:    createTexture3Dp
+	 * Signature: (IIIIIIIIJJ)J
+	 */
+	JNIEXPORT jlong JNICALL Java_me_anno_directx11_DirectX_createTexture3Dp
+	(JNIEnv*, jclass, jint, jint, jint, jint, jint, jint, jint, jint, jlong, jlong);
+
+	/*
+	 * Class:     me_anno_directx11_DirectX
 	 * Method:    bindTextures
 	 * Signature: (IJ)V
 	 */
@@ -381,6 +389,14 @@ extern "C" {
 	 * Signature: (JLjava/lang/Object;)V
 	 */
 	JNIEXPORT void JNICALL Java_me_anno_directx11_DirectX_setIconifyCallback
+	(JNIEnv*, jclass, jlong, jobject);
+
+	/*
+	 * Class:     me_anno_directx11_DirectX
+	 * Method:    setPosCallback
+	 * Signature: (JLjava/lang/Object;)V
+	 */
+	JNIEXPORT void JNICALL Java_me_anno_directx11_DirectX_setPosCallback
 	(JNIEnv*, jclass, jlong, jobject);
 
 	/*

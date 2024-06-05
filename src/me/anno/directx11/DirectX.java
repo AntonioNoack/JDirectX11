@@ -118,6 +118,9 @@ public class DirectX {
 	public static native long createTexture3Di(int type, int samples, int internalFormat, int width, int height, int depth,
 											   int srcFormat, int srcType, int[] ptr);
 
+	public static native long createTexture3Dp(int type, int samples, int internalFormat, int width, int height, int depth,
+											   int srcFormat, int srcType, long ptr, long length);
+
 	public static native void bindTextures(int numTextures, long texturePtr);
 
 	public static void bindUniforms(Program currProgram, ProgramVariation pv) {
@@ -156,6 +159,8 @@ public class DirectX {
 	public static native void setFocusCallback(long window, Object callback);
 
 	public static native void setIconifyCallback(long window, Object callback);
+
+	public static native void setPosCallback(long window, Object callback);
 
 	public static native boolean shouldWindowClose(long window);
 

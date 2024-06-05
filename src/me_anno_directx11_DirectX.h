@@ -377,6 +377,14 @@ JNIEXPORT void JNICALL Java_me_anno_directx11_DirectX_setIconifyCallback
 
 /*
  * Class:     me_anno_directx11_DirectX
+ * Method:    setPosCallback
+ * Signature: (JLjava/lang/Object;)V
+ */
+JNIEXPORT void JNICALL Java_me_anno_directx11_DirectX_setPosCallback
+  (JNIEnv *, jclass, jlong, jobject);
+
+/*
+ * Class:     me_anno_directx11_DirectX
  * Method:    shouldWindowClose
  * Signature: (J)Z
  */

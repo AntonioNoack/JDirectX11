@@ -1,9 +1,9 @@
 package org.lwjgl.opengl.custom
 
 import me.anno.utils.OS
-import me.anno.utils.strings.StringHelper.indexOf2
 import me.anno.utils.structures.lists.Lists.indexOf2
 import me.anno.utils.structures.lists.Lists.sortedByTopology
+import me.anno.utils.types.Strings.indexOf2
 import org.anarres.cpp.Feature
 import org.anarres.cpp.Preprocessor
 import org.anarres.cpp.StringLexerSource
@@ -22,15 +22,16 @@ class ShaderTranslator(val type: Int) {
             "sampler2D" to "Texture2D",
             "sampler3D" to "Texture3D",
             "sampler2DMS" to "Texture2D",
-            "sampler2DShadow" to "Texture2D",
-            "sampler3DShadow" to "Texture3D",
+            "sampler2DShadow" to "Texture2D<float>",
+            "sampler3DShadow" to "Texture3D<float>",
             "isampler2D" to "Texture2D",
             "isampler3D" to "Texture3D",
             "usampler2D" to "Texture2D",
             "usampler3D" to "Texture3D",
             "samplerCube" to "TextureCube",
-            "samplerCubeShadow" to "TextureCube",
-            "sampler2DArray" to "Texture2DArray"
+            "samplerCubeShadow" to "TextureCube<float>",
+            "sampler2DArray" to "Texture2DArray",
+            "sampler2DArrayShadow" to "Texture2DArray<float>",
         )
 
         val typeMap = hashMapOf(
@@ -256,13 +257,22 @@ class ShaderTranslator(val type: Int) {
 
         val vsOutputList = if (isVertex) outputs else inputs
         r.append("struct VS_Output { // varyings\n")
+        var ji = 0
         for (j in varyings.indices) {
             val v = varyings[j]
             val type = typeMap[v.type]!!
             vsOutputList.add(v.listDeclaration("VS_Output", type))
             v.appendDeclaration(type, r)
-            r.append(" : V").append(j)
+            r.append(" : CUSTOM").append(ji)
             r.append(";\n")
+            ji += when (type) { // todo add all others that need this
+                "float2x2" -> 2
+                "float2x3" -> 3
+                "float3x3" -> 3
+                "float3x4" -> 4
+                "float4x4" -> 4
+                else -> 1
+            }
         }
         if (isVertex) {
             r.append("  float4 gl_Position : SV_POSITION;\n")
@@ -274,10 +284,12 @@ class ShaderTranslator(val type: Int) {
             vsOutputList.add(listOf("VS_Output", "uint", "gl_InstanceID"))
             // this property needs to be inverted (except if not flippedY)
             r.append("  bool gl_FrontFacing0 : SV_IsFrontFace;\n")
-            r.append("#define gl_FrontFacing (gl_FrontFacing0 != (gl_FlippedY<0.0))\n")
             vsOutputList.add(listOf("VS_Output", "bool", "gl_FrontFacing0"))
         }
         r.append("};\n")
+        if (isFragment) {
+            r.append("#define gl_FrontFacing (gl_FrontFacing0 != (gl_FlippedY<0.0))\n")
+        }
 
         // append all textures and samplers
         var numTextures = 0
@@ -306,13 +318,13 @@ class ShaderTranslator(val type: Int) {
                 val type = typeMap[v.type]!!
                 outputs.add(v.listDeclaration("PS_Output", type))
                 v.appendDeclaration(type, r)
-                r.append(" : COLOR").append(j)
+                r.append(" : SV_Target").append(j)
                 r.append(";\n")
             }
             // if shader uses gl_FragDepth=..., then add : DEPTH
             if (isWritingFragDepth) {
                 outputs.add(listOf("PS_Output", "float4", "gl_FragDepth"))
-                r.append("float4 gl_FragDepth : DEPTH;\n")
+                r.append("float4 gl_FragDepth : SV_Depth;\n")
             }
             r.append("};\n")
         }
@@ -462,19 +474,43 @@ class ShaderTranslator(val type: Int) {
                 "float4 texelFetch(Texture2D tex, int2 coords, int layer){\n" +
                 "   return tex.Load(int3(coords,layer));\n" +
                 "}\n" +
+                // cube
                 "int2 textureSize(TextureCube tex, int lod) {\n" +
-                "   uint sx,sy;\n" +
-                "   tex.GetDimensions(sx,sy);\n" +
+                "   uint sx,sy,sl;\n" +
+                "   tex.GetDimensions(lod,sx,sy,sl);\n" +
                 "   return int2(sx,sy);\n" +
                 "}\n" +
+                "int2 textureSize(TextureCube<float> tex, int lod) {\n" +
+                "   uint sx,sy,sl;\n" +
+                "   tex.GetDimensions(lod,sx,sy,sl);\n" +
+                "   return int2(sx,sy);\n" +
+                "}\n" +
+                // 2d
                 "int2 textureSize(Texture2D tex, uint lod) {\n" +
-                "   uint sx,sy;\n" +
-                "   tex.GetDimensions(sx,sy);\n" +
+                "   uint sx,sy,sl;\n" +
+                "   tex.GetDimensions(lod,sx,sy,sl);\n" +
                 "   return int2(sx,sy);\n" +
                 "}\n" +
+                "int2 textureSize(Texture2D<float> tex, uint lod) {\n" +
+                "   uint sx,sy,sl;\n" +
+                "   tex.GetDimensions(lod,sx,sy,sl);\n" +
+                "   return int2(sx,sy);\n" +
+                "}\n" +
+                // 2d[]
+                "int3 textureSize(Texture2DArray tex, uint lod) {\n" +
+                "   uint sx,sy,sz,sl;\n" +
+                "   tex.GetDimensions(lod,sx,sy,sz,sl);\n" +
+                "   return int3(sx,sy,sz);\n" +
+                "}\n" +
+                "int3 textureSize(Texture2DArray<float> tex, uint lod) {\n" +
+                "   uint sx,sy,sz,sl;\n" +
+                "   tex.GetDimensions(lod,sx,sy,sz,sl);\n" +
+                "   return int3(sx,sy,sz);\n" +
+                "}\n" +
+                // 3d
                 "int3 textureSize(Texture3D tex, uint lod) {\n" +
-                "   uint sx,sy,sz;\n" +
-                "   tex.GetDimensions(sx,sy,sz);\n" +
+                "   uint sx,sy,sz,sl;\n" +
+                "   tex.GetDimensions(lod,sx,sy,sz,sl);\n" +
                 "   return int3(sx,sy,sz);\n" +
                 "}\n" +
                 "uint floatBitsToUint(float v) { return asuint(v); }\n" +

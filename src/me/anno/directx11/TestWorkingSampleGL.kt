@@ -1,10 +1,10 @@
 package me.anno.directx11
 
 import me.anno.gpu.RenderDoc.forceLoadRenderDoc
-import me.anno.maths.Maths.hasFlag
 import me.anno.utils.Color.b01
 import me.anno.utils.Color.g01
 import me.anno.utils.Color.r01
+import me.anno.utils.types.Booleans.hasFlag
 import org.lwjgl.glfw.GLFW.*
 import org.lwjgl.opengl.GL
 import org.lwjgl.opengl.GL11C.*

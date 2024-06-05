@@ -132,7 +132,7 @@
       <ConformanceMode>true</ConformanceMode>
       <PrecompiledHeader>Use</PrecompiledHeader>
       <PrecompiledHeaderFile>pch.h</PrecompiledHeaderFile>
-      <AdditionalIncludeDirectories>C:\Program Files\Java\jdk1.8.0_321\include\win32\bridge;C:\Program Files\Java\jdk1.8.0_321\include\win32;C:\Program Files\Java\jdk1.8.0_321\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>C:\Program Files\Java\jdk-22.0.1\include\win32\bridge;C:\Program Files\Java\jdk-22.0.1\include\win32;C:\Program Files\Java\jdk-22.0.1\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
     </ClCompile>
     <Link>
       <SubSystem>Windows</SubSystem>

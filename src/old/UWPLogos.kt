@@ -4,7 +4,7 @@ import me.anno.image.Image
 import me.anno.image.ImageCache
 import me.anno.image.raw.IntImage
 import me.anno.io.files.FileReference
-import me.anno.utils.LOGGER
+import org.apache.logging.log4j.LogManager
 import java.io.IOException
 import kotlin.math.max
 import kotlin.math.min
@@ -13,7 +13,7 @@ fun buildLogos(src: FileReference, dst: FileReference) {
     val srcImage0 = ImageCache[src, false] ?: throw IOException("Could not load $src as image")
     val maxScale = 2048 / max(srcImage0.width, srcImage0.height)
     val srcImage1 = srcImage0.scaleUp(maxScale, maxScale)
-    for (file in dst.listChildren()!!) {
+    for (file in dst.listChildren()) {
         buildLogo(srcImage1, file)
     }
 }
@@ -41,7 +41,7 @@ fun buildLogo(srcImage: Image, dst: FileReference) {
         newImage = newImage2
     }
     if (newImage.width != dstImage.width || newImage.height != dstImage.height) {
-        LOGGER.warn("Incorrect sizes! $dstImage x $srcImage -> $newImage")
+        LogManager.getLogger("UWPLogo").warn("Incorrect sizes! $dstImage x $srcImage -> $newImage")
     } else {
         newImage.write(dst)
     }

@@ -1,7 +1,6 @@
 package org.lwjgl.glfw;
 
 import me.anno.directx11.DirectX;
-import me.anno.io.files.FileReference;
 import org.jetbrains.annotations.Nullable;
 
 import java.io.File;
@@ -9,6 +8,7 @@ import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 
+import static me.anno.io.files.Reference.getReference;
 import static org.lwjgl.opengl.GL11C.nullTexture;
 
 @SuppressWarnings("unused")
@@ -26,7 +26,7 @@ public class GLFW {
 
     public static long glfwCreateWindow(int width, int height, @Nullable CharSequence name, long monitor, long sharedCtx) throws IOException {
         File tmp = File.createTempFile("icon", ".ico");
-        try (InputStream str = FileReference.getReference("res://icon.ico").inputStreamSync()) {
+        try (InputStream str = getReference("res://icon.ico").inputStreamSync()) {
             FileOutputStream fos = new FileOutputStream(tmp);
             byte[] tmp1 = new byte[1024];
             while (true) {
@@ -69,6 +69,12 @@ public class GLFW {
     @Nullable
     public static GLFWWindowIconifyCallback glfwSetWindowIconifyCallback(long window, GLFWWindowIconifyCallbackI callback) {
         DirectX.setIconifyCallback(window, callback);
+        return null;
+    }
+
+    @Nullable
+    public static GLFWWindowPosCallback glfwSetWindowPosCallback(long window, GLFWWindowPosCallbackI callback) {
+        DirectX.setPosCallback(window, callback);
         return null;
     }
 

@@ -3,7 +3,7 @@ package me.anno.directx11
 import me.anno.Engine
 import me.anno.engine.RemsEngine
 import me.anno.gpu.GFXBase
-import me.anno.gpu.shader.OpenGLShader.Companion.UniformCacheSize
+import me.anno.gpu.shader.GPUShader.Companion.UniformCacheSize
 import kotlin.system.exitProcess
 
 fun main() {
