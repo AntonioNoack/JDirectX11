@@ -10,8 +10,6 @@ struct Window {
 	ID3D11RenderTargetView* primaryRTV = nullptr;
 	IDXGISwapChain1* swapChain = nullptr;
 
-	ID3D11Buffer* nullBuffer = nullptr;
-
 	jobject frameSizeCallback = nullptr;
 	jobject focusCallback = nullptr;
 	jobject iconifyCallback = nullptr;

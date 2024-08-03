@@ -572,24 +572,6 @@ JNIEXPORT jlong JNICALL Java_me_anno_directx11_DirectX_doAttachDirectX
 	CreateSwapChain(*window);
 	CreateRenderTargetView(*window);
 	CheckLastError("AttachDirectX");
-
-	D3D11_BUFFER_DESC bufferDesc = {};
-	bufferDesc.ByteWidth = (UINT)(16 << 20); // 16MB... and this whole thing will GPU-segfault, if we have more than 4M unbound elements
-	bufferDesc.Usage = D3D11_USAGE_IMMUTABLE; // D3D11_USAGE_IMMUTABLE;
-	bufferDesc.BindFlags = D3D11_BIND_VERTEX_BUFFER; // D3D11_BIND_VERTEX_BUFFER or D3D11_BIND_INDEX_BUFFER;
-
-	D3D11_SUBRESOURCE_DATA subresourceData = {};
-	void* zeroData = calloc(1, bufferDesc.ByteWidth);
-	subresourceData.pSysMem = (void*) zeroData;
-
-	HRESULT hResult = window->device->CreateBuffer(&bufferDesc, &subresourceData, &window->nullBuffer);
-	free(zeroData);
-	if (FAILED(hResult)) {
-		std::cerr << "CreateBuffer#0" << std::endl;
-		PrintError(hResult, "CreateBuffer");
-		return 0;
-	}
-
 	return (jlong)window->primaryRTV;
 }
 
@@ -1257,6 +1239,7 @@ DXGI_FORMAT mapTextureFormat(jint format) {
 	case 0x81a6: // depth 24
 		return DXGI_FORMAT_D24_UNORM_S8_UINT;
 	case 0x81a7: // depth 32
+	case 0x1902: // depth in general
 		return DXGI_FORMAT_D32_FLOAT;
 	case 0x8cac: // depth 32f
 		return DXGI_FORMAT_D32_FLOAT;
@@ -1330,6 +1313,7 @@ bool isDepthFormat(jint format) {
 	case 0x81a7: // depth 32
 	case 0x8cac: // depth 32f
 	case 0x8cad: // depth 32f, stencil 8
+	case 0x1902: // depth in general
 		return true;
 	default:
 		return false;
@@ -1350,6 +1334,7 @@ void mapDepthFormat(jint format, DXGI_FORMAT& dstTexFormat, DXGI_FORMAT& dstDscF
 		break;
 	case 0x81a7: // depth 32
 	case 0x8cac: // depth 32f
+	case 0x1902: // depth in general
 		dstTexFormat = DXGI_FORMAT_R32_TYPELESS;
 		dstDscFormat = DXGI_FORMAT_R32_FLOAT;
 		dstRTVFormat = DXGI_FORMAT_D32_FLOAT;
@@ -1536,7 +1521,7 @@ JNIEXPORT jlong JNICALL Java_me_anno_directx11_DirectX_createTexture2D
 	ID3D11Texture2D* texture;
 	hResult = currentWindow->device->CreateTexture2D(&textureDesc, &textureSubresourceData, &texture);
 	if (FAILED(hResult)) {
-		PrintError(hResult, "CreateTexture2Di");
+		PrintError(hResult, "CreateTexture2Dj");
 		return 0;
 	}
 
@@ -2332,7 +2317,7 @@ static std::unordered_map<LayoutKey, ID3D11InputLayout*> inputLayouts{};
 JNIEXPORT jint JNICALL Java_me_anno_directx11_DirectX_doBindVAO
 (JNIEnv* env, jclass, jlong vertexShaderHandle,
  jbyteArray channels, jintArray types, jintArray strides, jintArray offsets,
- jlongArray buffers, jint perInstance, jint normalized, jint enabled) {
+ jlongArray buffers, jint perInstance, jint normalized) {
 
 	// auto t0 = std::chrono::high_resolution_clock::now();
 
@@ -2355,7 +2340,8 @@ JNIEXPORT jint JNICALL Java_me_anno_directx11_DirectX_doBindVAO
 		UINT inputSlot = isPerInstance ? 1u : 0u;
 		jlong buffer = 0;
 		env->GetLongArrayRegion(buffers, i, 1, &buffer);
-		if (((enabled & mask) != 0) && (buffer != 0)) {
+		assert(buffer);
+		{
 
 			jint stride = 0;
 			jint offset = 0;
@@ -2394,22 +2380,6 @@ JNIEXPORT jint JNICALL Java_me_anno_directx11_DirectX_doBindVAO
 			layoutOffsets[i] = 0;
 			layoutBuffers[i] = (ID3D11Buffer*)buffer;
 		}
-		else {
-			key.bindings[i] = 0;
-			// bind layout to zero element
-			// for that, we may need to extend buffer data or create a shader variation, because we can't bind multiple buffers
-			layoutElements[i] = {
-				attrName, 0, // semantic index, only needed for matrices
-				DXGI_FORMAT_R8G8B8A8_UINT, inputSlot,
-				0, // offset
-				isPerInstance ? D3D11_INPUT_PER_INSTANCE_DATA : D3D11_INPUT_PER_VERTEX_DATA, // todo this will break, if the attribute is not per instance :/
-				isPerInstance ? 0xffffffff - 16 : 0u // maximum value minus some margin
-			};
-			layoutStrides[i] = 4;
-			layoutOffsets[i] = 0;
-			layoutBuffers[i] = window->nullBuffer;
-			std::cerr << "Missing buffer for attribute " << attrName << ", using " << std::hex << window->nullBuffer << std::dec << std::endl;
-		}
 
 		if (false) {
 			int format = layoutElements[i].Format;
@@ -2418,6 +2388,7 @@ JNIEXPORT jint JNICALL Java_me_anno_directx11_DirectX_doBindVAO
 				layoutElements[i].SemanticName << "\", " <<
 				layoutElements[i].SemanticIndex << ", " <<
 				(format == DXGI_FORMAT_R32G32B32_FLOAT ? "DXGI_FORMAT_R32G32B32_FLOAT" :
+				 format == DXGI_FORMAT_R32G32B32A32_FLOAT ? "DXGI_FORMAT_R32G32B32A32_FLOAT" :
 				 format == DXGI_FORMAT_R32_FLOAT ? "DXGI_FORMAT_R32_FLOAT" :
 				 format == DXGI_FORMAT_R32G32_FLOAT ? "DXGI_FORMAT_R32G32_FLOAT" :
 				 format == DXGI_FORMAT_R16_FLOAT ? "DXGI_FORMAT_R16_FLOAT" :

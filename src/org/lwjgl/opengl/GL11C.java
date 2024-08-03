@@ -15,6 +15,7 @@ import org.lwjgl.system.MemoryUtil;
 import java.nio.*;
 import java.util.*;
 
+import static me.anno.directx11.DirectX.calculateProgramVariation;
 import static org.lwjgl.opengl.GL11.GL_VERSION;
 import static org.lwjgl.opengl.GL15.GL_ARRAY_BUFFER;
 import static org.lwjgl.opengl.GL15.GL_ELEMENT_ARRAY_BUFFER;
@@ -178,25 +179,32 @@ public class GL11C {
         join(vt.getVaryings(), ft.getVaryings(), tokens);
         vt.getUniforms().add(flippedYVariable);
         ft.getUniforms().add(flippedYVariable);
-        String fsSource = p.fragment.translator.emitProgramShader(p, 0);
+        String fsSource = p.fragment.translator.emitProgramShader(p, 0, 0);
         p.fragmentP = DirectX.compilePixelShader(fsSource);
         if (p.fragmentP == 0L) throw new IllegalStateException("Fragment shader didn't compile properly");
         p.uniformBuffer = ByteBuffer.allocateDirect(p.uniformSize).order(ByteOrder.nativeOrder());
         // System.out.println("U[" + p.index + "]=" + p.uniformSize);
     }
 
-    private static ProgramVariation getVariation(Program p, int pvi) {
-        ProgramVariation pv = p.variations.get(pvi);
+    private static ProgramVariation getVariation(Program p, long variationId) {
+        ProgramVariation pv = p.variations.get(variationId);
         if (pv == null) {
             pv = new ProgramVariation();
-            pv.index = pvi;
-            String vsSource = p.vertex.translator.emitProgramShader(p, pvi);
-            if (p.variations.isEmpty()) { // only needs to be done once
-                p.attrNames = p.attributes1.stream().map((it) -> it.name).toArray(String[]::new);
+            pv.indexedAttributesMask = (int) (variationId >> 32);
+            pv.enabledAttributesMask = (int) variationId;
+            String vsSource = p.vertex.translator.emitProgramShader(p, pv.indexedAttributesMask, pv.enabledAttributesMask);
+            int numAttrs = Integer.bitCount(pv.enabledAttributesMask);
+            String[] attrNames = new String[numAttrs];
+            for (int i = 0, ai = 0, l = p.attributesList.size(); i < l; i++) {
+                int mask = 1 << i;
+                if ((pv.enabledAttributesMask & mask) != 0) {
+                    attrNames[ai++] = p.attributesList.get(i).name;
+                }
             }
-            pv.vertexP = DirectX.compileVertexShader(vsSource, p.attrNames, p.uniformSize);
+            pv.attrNames = attrNames;
+            pv.vertexP = DirectX.compileVertexShader(vsSource, pv.attrNames, p.uniformSize);
             if (pv.vertexP == 0L) throw new IllegalStateException("Vertex shader didn't compile properly");
-            p.variations.put(pvi, pv);
+            p.variations.put(variationId, pv);
         }
         return pv;
     }
@@ -259,8 +267,8 @@ public class GL11C {
                 blendState |= 2;
                 break;
             case GL_MULTISAMPLE:
-                break;
             case GL_LINE_SMOOTH:
+            case GL_TEXTURE_CUBE_MAP_SEAMLESS:
                 break;
             case GL_CULL_FACE:
                 enableCulling = true;
@@ -286,8 +294,8 @@ public class GL11C {
                 blendState &= ~2;
                 break;
             case GL_MULTISAMPLE:
-                break;
             case GL_LINE_SMOOTH:
+            case GL_TEXTURE_CUBE_MAP_SEAMLESS:
                 break;
             case GL_CULL_FACE:
                 enableCulling = false;
@@ -598,8 +606,7 @@ public class GL11C {
         }
 
         VAO vao = currentVAO;
-        int pvi = DirectX.calculateProgramVariation(vao);
-        ProgramVariation pv = getVariation(p, pvi);
+        ProgramVariation pv = getVariation(p, calculateProgramVariation(p, vao));
 
         int vaoRet = DirectX.bindVAO(p, pv, vao);
         if (vaoRet != 0) {
@@ -1343,6 +1350,21 @@ public class GL11C {
         dst.putFloat(pos, x);
     }
 
+    public static void glUniform1fv(int pos, float[] x) {
+        if (printUniforms) {
+            System.out.println("U[" + currentProgram.index + ", " + pos + "]=float(" + Arrays.toString(x) + ")");
+        }
+        ByteBuffer dst = currentProgram.uniformBuffer;
+        if (pos + 4 > dst.capacity()) {
+            System.out.println("u1fv(" + currentProgram.index + ", " + pos + "/" + dst.capacity() + ", " + Arrays.toString(x) + ")");
+            System.exit(-1);
+        }
+        for (int i = 0; i < x.length; i++) {
+            dst.putFloat(pos, x[i]);
+            pos += 4;
+        }
+    }
+
     public static void glUniform1i(int pos, int x) {
         if (printUniforms) System.out.println("U[" + currentProgram.index + ", " + pos + "]=int(" + x + ")");
         if (pos < 1_000_000) {
@@ -1520,6 +1542,33 @@ public class GL11C {
     }
 
     public static void glPopDebugGroup() {
+    }
+
+    private static int nextQueryId = 1;
+
+    public static void glGenQueries(int[] ids) {
+        for (int i = 0; i < ids.length; i++) {
+            ids[i] = nextQueryId++;
+        }
+    }
+
+    public static void glBeginQuery(int target, int id) {
+    }
+
+    public static void glEndQuery(int target) {
+    }
+
+    public static int glGetQueryObjecti(int id, int type) {
+        return (int) glGetQueryObjecti64(id, type);
+    }
+
+    public static long glGetQueryObjecti64(int id, int type) {
+        // todo how do we implement these in Dx11?
+        if (type == GL_QUERY_RESULT_AVAILABLE) {
+            return 0;
+        } else if (type == GL_QUERY_RESULT) {
+            return 0;
+        } else return -1;
     }
 
 }

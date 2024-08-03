@@ -8,7 +8,6 @@ public class VAO {
     public final int[] strides = new int[MAX_ATTRIBUTES];
     public final int[] offsets = new int[MAX_ATTRIBUTES];
     public final Buffer[] buffers = new Buffer[MAX_ATTRIBUTES];
-    public final long[] bufferPts = new long[MAX_ATTRIBUTES];
     public int enabled = 0;
     public int normalized = 0;
     public int perInstance = 0;

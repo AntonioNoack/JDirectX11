@@ -3,6 +3,7 @@ package org.lwjgl.opengl.custom
 import me.anno.utils.OS
 import me.anno.utils.structures.lists.Lists.indexOf2
 import me.anno.utils.structures.lists.Lists.sortedByTopology
+import me.anno.utils.types.Booleans.hasFlag
 import me.anno.utils.types.Strings.indexOf2
 import org.anarres.cpp.Feature
 import org.anarres.cpp.Preprocessor
@@ -158,7 +159,7 @@ class ShaderTranslator(val type: Int) {
 
     }
 
-    fun emitProgramShader(p: Program, pvi: Int): String {
+    fun emitProgramShader(p: Program, instancedAttributesMask: Int, enabledAttributesMask: Int): String {
 
         val r = StringBuilder()
         val inputs = ArrayList<List<CharSequence>>()
@@ -225,22 +226,26 @@ class ShaderTranslator(val type: Int) {
             inputs.add(listOf("VS_Input", "uint", "gl_VertexID"))
             inputs.add(listOf("VS_Input", "uint", "gl_InstanceID"))
             // todo respect attribute indices
-            val addAttr = p.attributes1.isEmpty()
+            val addAttr = p.attributesList.isEmpty()
             for (j in attributes.indices) {
                 val v = attributes[j]
                 val type = typeMap[v.type]!!
                 val name = v.name
-                if (addAttr) p.attributes1.add(Program.Attribute(v.type, type, name + "_"))
-                if ((pvi and (1 shl j)) != 0) continue
+                if (addAttr) p.attributesList.add(Program.Attribute(v.type, type, name + "_"))
+                val mask = 1 shl j
+                if ((instancedAttributesMask and mask) != 0) continue
+                if ((enabledAttributesMask and mask) == 0) continue
                 inputs.add(v.listDeclaration("VS_Input", type))
                 v.appendDeclaration(type, r)
                 r.append(" : ").append(name).append("_;\n")
             }
             r.append("};\n")
-            if (pvi != 0) {
+            if (instancedAttributesMask != 0) {
                 r.append("struct VS_InstInput { // instanced attributes\n")
                 for (j in attributes.indices) {
-                    if ((pvi and (1 shl j)) == 0) continue
+                    val mask = 1 shl j
+                    if ((instancedAttributesMask and mask) == 0) continue
+                    if ((enabledAttributesMask and mask) == 0) continue
                     val v = attributes[j]
                     val type = typeMap[v.type]!!
                     val name = v.name
@@ -252,6 +257,14 @@ class ShaderTranslator(val type: Int) {
                     r.append(" : ").append(name).append("_;\n")
                 }
                 r.append("};\n")
+            }
+            for (j in attributes.indices) {
+                val mask = 1 shl j
+                if ((enabledAttributesMask and mask) == 0) {
+                    val v = attributes[j]
+                    val type = typeMap[v.type]!!
+                    inputs.add(v.listDeclaration("ZERO", type))
+                }
             }
         }
 
@@ -284,6 +297,7 @@ class ShaderTranslator(val type: Int) {
             vsOutputList.add(listOf("VS_Output", "uint", "gl_InstanceID"))
             // this property needs to be inverted (except if not flippedY)
             r.append("  bool gl_FrontFacing0 : SV_IsFrontFace;\n")
+            r.append("  uint gl_SampleID : SV_SampleIndex;\n")
             vsOutputList.add(listOf("VS_Output", "bool", "gl_FrontFacing0"))
         }
         r.append("};\n")
@@ -302,10 +316,8 @@ class ShaderTranslator(val type: Int) {
         for (v in uniforms) {
             val kw = texMap[v.type] ?: continue
             val name = v.name
-            r.append(kw).append(' ')
-                .append(name).append(" : register(t").append(ti).append(");\n")
-            r.append("SamplerState ")
-                .append(name).append("_s : register(s").append(ti).append(");\n")
+            r.append(kw).append(' ').append(name).append(" : register(t").append(ti).append(");\n")
+            r.append("SamplerState ").append(name).append("_s : register(s").append(ti).append(");\n")
             p.uniforms[name] = 1_000_000 + ti
             ti++
         }
@@ -345,23 +357,28 @@ class ShaderTranslator(val type: Int) {
                 mainFunc[1] == "main" &&
                 mainFunc[2] == "("
             ) {
-
                 val canDiscard = mainFunc.contains("discard")
-
                 val newFunc = ArrayList<CharSequence>()
                 when {
                     isVertex -> {
                         newFunc.add("VS_Output vs_main(VS_Input input")
-                        if (pvi != 0) newFunc.add(", VS_InstInput instInput")
+                        if (instancedAttributesMask != 0) newFunc.add(", VS_InstInput instInput")
                         newFunc.add(") {\n")
                         newFunc.add("  VS_Output output = (VS_Output) 0;\n")
+                        for (i in attributes.indices) { // add zero values
+                            val mask = 1 shl i
+                            if (!enabledAttributesMask.hasFlag(mask)) {
+                                val v = attributes[i]
+                                val type = typeMap[v.type]!!
+                                newFunc.addAll(v.listDeclaration("", type))
+                                newFunc.add("=($type) 0;\n")
+                            }
+                        }
                     }
-
                     isFragment -> {
                         newFunc.add("PS_Output ps_main(VS_Output input) : SV_Target {\n")
                         newFunc.add("  PS_Output output = (PS_Output) 0;\n")
                     }
-
                     else -> throw NotImplementedError()
                 }
                 // add function parameters
@@ -379,23 +396,57 @@ class ShaderTranslator(val type: Int) {
                     extra.add("main")
                     extra.add("(")
                 }
-                var first = true
-                fun next() {
-                    if (first) first = false
+
+                var newFuncFirst = true
+                var extraFirst = true
+                fun funcNext() {
+                    if (newFuncFirst) newFuncFirst = false
                     else {
                         newFunc.add(",")
+                    }
+                }
+
+                fun extraNext() {
+                    if (extraFirst) extraFirst = false
+                    else {
                         extra.add(",")
                     }
                 }
-                for (ji in inputs.indices) {
-                    val v = inputs[ji]
-                    next()
-                    val normalInput = v[0] != "VS_InstInput"
-                    newFunc.add(if (normalInput) "input" else "instInput")
-                    newFunc.add(".")
-                    newFunc.add(v.last())
-                    extra.add("in")
-                    extra.addAll(v.subList(1, v.size))
+
+                fun next() {
+                    funcNext()
+                    extraNext()
+                }
+
+                for (jik in inputs.indices) {
+                    val v = inputs[jik]
+                    when (v[0]) {
+                        "VS_Input", "VS_Output" -> {
+                            next()
+                            newFunc.add("input")
+                            newFunc.add(".")
+                            newFunc.add(v.last())
+                            extra.add("in")
+                            extra.addAll(v.subList(1, v.size))
+                        }
+                        "VS_InstInput" -> {
+                            next()
+                            newFunc.add("instInput")
+                            newFunc.add(".")
+                            newFunc.add(v.last())
+                            extra.add("in")
+                            extra.addAll(v.subList(1, v.size))
+                        }
+                        "ZERO" -> {
+                            // todo init field in main function
+                            next()
+                            newFunc.add(v.last())
+                            extra.add("in")
+                            extra.addAll(v.subList(1, v.size))
+                        }
+                        else -> throw IllegalStateException("Unknown " + v[0])
+                    }
+
                 }
                 for (v in outputs) {
                     next()
@@ -438,6 +489,7 @@ class ShaderTranslator(val type: Int) {
                 appendFunc(func, r)
             }
         }
+
         if (oldMainMod != null) appendFunc(oldMainMod, r)
         if (newMain != null) appendFunc(newMain, r)
 
@@ -446,6 +498,12 @@ class ShaderTranslator(val type: Int) {
             .replace("float2(", "makeFloat2(")
             .replace("float3(", "makeFloat3(")
             .replace("float4(", "makeFloat4(")
+            .replace("uint2(", "makeUInt2(")
+            .replace("uint3(", "makeUInt3(")
+            .replace("uint4(", "makeUInt4(")
+            .replace("int2(", "makeInt2(")
+            .replace("int3(", "makeInt3(")
+            .replace("int4(", "makeInt4(")
             .replace("texture(", "sampleTexture(")
             .replace("textureLod(", "sampleTextureLod(")
 
@@ -465,6 +523,27 @@ class ShaderTranslator(val type: Int) {
                 "float4 makeFloat4(float3 xyz, float w) { return float4(xyz,w); }\n" +
                 "float4 makeFloat4(float x, float3 yzw) { return float4(x,yzw); }\n" +
                 "float4 makeFloat4(float x, float y, float z, float w) { return float4(x,y,z,w); }\n" +
+                "float2 makeFloat2(float2 x) { return x; }\n" +
+                "float3 makeFloat3(float3 x) { return x; }\n" +
+                "float4 makeFloat4(float4 x) { return x; }\n" +
+                "uint2 makeUInt2(uint x, uint y){ return uint2(x,y); }\n" +
+                "uint3 makeUInt3(uint x, uint y, uint z){ return uint3(x,y,z); }\n" +
+                "uint4 makeInt4(uint x, uint y, uint z, uint w){ return uint4(x,y,z,w); }\n" +
+                "int2 makeInt2(int x, int y){ return int2(x,y); }\n" +
+                "int3 makeInt3(int x, int y, int z){ return int3(x,y,z); }\n" +
+                "int4 makeInt4(int x, int y, int z, int w){ return int4(x,y,z,w); }\n" +
+                "uint2 makeUInt2(int2 v){ return uint2(v); }\n" +
+                "uint3 makeUInt3(int3 v){ return uint3(v); }\n" +
+                "uint4 makeUInt4(int4 v){ return uint4(v); }\n" +
+                "uint2 makeUInt2(float2 v){ return uint2(v); }\n" +
+                "uint3 makeUInt3(float3 v){ return uint3(v); }\n" +
+                "uint4 makeUInt4(float4 v){ return uint4(v); }\n" +
+                "int2 makeInt2(int2 v){ return int2(v); }\n" +
+                "int3 makeInt3(int3 v){ return int3(v); }\n" +
+                "int4 makeInt4(int4 v){ return int4(v); }\n" +
+                "int2 makeInt2(float2 v){ return int2(v); }\n" +
+                "int3 makeInt3(float3 v){ return int3(v); }\n" +
+                "int4 makeInt4(float4 v){ return int4(v); }\n" +
                 "#define lessThan(a,b) ((a)<(b))\n" +
                 "#define greaterThan(a,b) ((a)>(b))\n" +
                 "#define sampleTexture(tex, uv) tex.Sample(tex##_s, uv)\n" +
@@ -537,7 +616,8 @@ class ShaderTranslator(val type: Int) {
             val symbol = if (isVertex) "v" else if (isFragment) "f" else "c"
             val folder = OS.documents.getChild("IdeaProjects/JDirectX11/debug")
             if (!folder.exists) folder.tryMkdirs()
-            val file = folder.getChild("${p.index}${if (pvi != 0) "-$pvi" else ""}.${symbol}s.hlsl")
+            val file =
+                folder.getChild("${p.index}${if (instancedAttributesMask != 0) "-$instancedAttributesMask" else ""}.${symbol}s.hlsl")
             file.writeText(str)
         }
 
@@ -554,21 +634,18 @@ class ShaderTranslator(val type: Int) {
                     }
                     r.append(f)
                 }
-
                 ",", ")", "]" -> {
                     if (r.endsWith(" ")) {
                         r.setLength(r.length - 1)
                     }
                     r.append(f).append(' ')
                 }
-
                 "&", "|" -> {
                     if (r.endsWith("& ") || r.endsWith("| ")) {
                         r.setLength(r.length - 1)
                     }
                     r.append(f).append(' ')
                 }
-
                 "{" -> r.append(f).append("\n  ")
                 ";" -> {
                     if (r.endsWith(" ")) {
@@ -576,14 +653,12 @@ class ShaderTranslator(val type: Int) {
                     }
                     r.append(f).append("\n  ")
                 }
-
                 "}" -> {
                     if (r.endsWith("  ")) {
                         r.setLength(r.length - 2)
                     }
                     r.append(f).append("\n  ")
                 }
-
                 "=", "+", "-", ">", "<" -> {
                     if (r.endsWith("> ") ||
                         r.endsWith("< ") ||
@@ -597,7 +672,6 @@ class ShaderTranslator(val type: Int) {
                     ) r.setLength(r.length - 1)
                     r.append(f)
                 }
-
                 else -> {
                     if (f.startsWith("#")) {
                         r.append('\n').append(f).append('\n')
@@ -790,13 +864,11 @@ class ShaderTranslator(val type: Int) {
                     }
                     tokens.add(src.subSequence(j, --i))
                 }
-
                 '+', '-' -> {
                     if (src[i + 1] in '0'..'9' || src[i + 1] == '.') {
                         readNumber()
                     } else tokens.add(src.subSequence(i, ++i))
                 }
-
                 in '0'..'9' -> readNumber()
                 '#' -> {
                     // skip until linebreak
@@ -804,7 +876,6 @@ class ShaderTranslator(val type: Int) {
                     tokens.add(src.subSequence(i, idx))
                     i = idx + 1
                 }
-
                 '/' -> {
                     if (src[i + 1] == '/') {
                         val idx = src.indexOf2('\n', i + 2)
@@ -818,7 +889,6 @@ class ShaderTranslator(val type: Int) {
                         tokens.add(src.subSequence(i, ++i))
                     }
                 }
-
                 else -> tokens.add(src.subSequence(i, ++i))
             }
         }

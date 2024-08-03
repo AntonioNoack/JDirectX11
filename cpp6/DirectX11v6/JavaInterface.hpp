@@ -114,10 +114,10 @@ extern "C" {
 	/*
 	 * Class:     me_anno_directx11_DirectX
 	 * Method:    doBindVAO
-	 * Signature: (J[B[I[I[I[JIII)I
+	 * Signature: (J[B[I[I[I[JII)I
 	 */
 	JNIEXPORT jint JNICALL Java_me_anno_directx11_DirectX_doBindVAO
-	(JNIEnv*, jclass, jlong, jbyteArray, jintArray, jintArray, jintArray, jlongArray, jint, jint, jint);
+	(JNIEnv*, jclass, jlong, jbyteArray, jintArray, jintArray, jintArray, jlongArray, jint, jint);
 
 	/*
 	 * Class:     me_anno_directx11_DirectX

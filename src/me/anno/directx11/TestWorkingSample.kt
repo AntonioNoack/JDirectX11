@@ -88,7 +88,6 @@ fun main() {
     val vaoBuffers = longArrayOf(vertexBuffer, instanceBuffer, instanceBuffer, instanceBuffer)
     val perInstance = 0b1110
     val normalized = 0
-    val enabled = 0b1111
 
     val texData = ByteBuffer.allocateDirect(16 * 4)
         .order(ByteOrder.nativeOrder())
@@ -139,7 +138,7 @@ fun main() {
         doBindVAO(
             vs, vaoChannels, vaoTypes,
             vaoStrides, vaoOffsets, vaoBuffers,
-            perInstance, normalized, enabled
+            perInstance, normalized
         )
 
         drawArraysInstanced(4, 0, vertexData.size / 2, instanceData.size)
