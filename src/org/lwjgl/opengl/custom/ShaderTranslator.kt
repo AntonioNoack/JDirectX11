@@ -1,6 +1,7 @@
 package org.lwjgl.opengl.custom
 
 import me.anno.utils.OS
+import me.anno.utils.structures.lists.Lists.any2
 import me.anno.utils.structures.lists.Lists.indexOf2
 import me.anno.utils.structures.lists.Lists.sortedByTopology
 import me.anno.utils.types.Booleans.hasFlag
@@ -546,48 +547,59 @@ class ShaderTranslator(val type: Int) {
                 "int4 makeInt4(float4 v){ return int4(v); }\n" +
                 "#define lessThan(a,b) ((a)<(b))\n" +
                 "#define greaterThan(a,b) ((a)>(b))\n" +
-                "#define sampleTexture(tex, uv) tex.Sample(tex##_s, uv)\n" +
+                // <float>-variants are for shadow maps
+                "float4 sampleTexture(Texture2D        tex, SamplerState s, float2 uv){ return tex.Sample(s, uv); }\n" +
+                "float  sampleTexture(Texture2D<float> tex, SamplerState s, float2 uv){ return tex.Sample(s, uv); }\n" +
+                "float4 sampleTexture(Texture2DArray        tex, SamplerState s, float3 uvw){ return tex.Sample(s, uvw); }\n" +
+                "float  sampleTexture(Texture2DArray<float> tex, SamplerState s, float3 uvw){ return tex.Sample(s, uvw); }\n" +
+                "float4 sampleTexture(Texture2D        tex, SamplerState s, float2 uv, float lodBias){ return tex.SampleBias(s, uv, lodBias); }\n" +
+                "float  sampleTexture(Texture2D<float> tex, SamplerState s, float2 uv, float lodBias){ return tex.SampleBias(s, uv, lodBias); }\n" +
+                "float4 sampleTexture(TextureCube        tex, SamplerState s, float3 uv){ return tex.Sample(s, uv); }\n" +
+                "float  sampleTexture(TextureCube<float> tex, SamplerState s, float3 uv){ return tex.Sample(s, uv); }\n" +
+                "float4 sampleTextureLod(Texture2D        tex, SamplerState s, float2 uv, float lod){ return tex.SampleLevel(s, uv, lod); }\n" +
+                "float  sampleTextureLod(Texture2D<float> tex, SamplerState s, float2 uv, float lod){ return tex.SampleLevel(s, uv, lod); }\n" +
+                "float4 sampleTextureLod(TextureCube        tex, SamplerState s, float3 uv, float lod){ return tex.SampleLevel(s, uv, lod); }\n" +
+                "float  sampleTextureLod(TextureCube<float> tex, SamplerState s, float3 uv, float lod){ return tex.SampleLevel(s, uv, lod); }\n" +
                 // "#define textureGather(tex, uv, loc) tex.Gather(tex##_s, uv, loc)\n" +
-                "#define textureOffset(tex, uv, offset) tex.Sample(tex##_s, uv, offset)\n" +
-                "#define sampleTextureLod(tex, uv, lod) tex.SampleLevel(tex##_s, uv, lod)\n" +
-                "float4 texelFetch(Texture2D tex, int2 coords, int layer){\n" +
+                // "#define textureOffset(tex, uv, offset) tex.Sample(tex##_s, uv, offset)\n" +
+                "float4 texelFetch(Texture2D tex, SamplerState s, int2 coords, int layer){\n" +
                 "   return tex.Load(int3(coords,layer));\n" +
                 "}\n" +
                 // cube
-                "int2 textureSize(TextureCube tex, int lod) {\n" +
+                "int2 textureSize(TextureCube tex, SamplerState s, int lod) {\n" +
                 "   uint sx,sy,sl;\n" +
                 "   tex.GetDimensions(lod,sx,sy,sl);\n" +
                 "   return int2(sx,sy);\n" +
                 "}\n" +
-                "int2 textureSize(TextureCube<float> tex, int lod) {\n" +
+                "int2 textureSize(TextureCube<float> tex, SamplerState s, int lod) {\n" +
                 "   uint sx,sy,sl;\n" +
                 "   tex.GetDimensions(lod,sx,sy,sl);\n" +
                 "   return int2(sx,sy);\n" +
                 "}\n" +
                 // 2d
-                "int2 textureSize(Texture2D tex, uint lod) {\n" +
+                "int2 textureSize(Texture2D tex, SamplerState s, uint lod) {\n" +
                 "   uint sx,sy,sl;\n" +
                 "   tex.GetDimensions(lod,sx,sy,sl);\n" +
                 "   return int2(sx,sy);\n" +
                 "}\n" +
-                "int2 textureSize(Texture2D<float> tex, uint lod) {\n" +
+                "int2 textureSize(Texture2D<float> tex, SamplerState s, uint lod) {\n" +
                 "   uint sx,sy,sl;\n" +
                 "   tex.GetDimensions(lod,sx,sy,sl);\n" +
                 "   return int2(sx,sy);\n" +
                 "}\n" +
                 // 2d[]
-                "int3 textureSize(Texture2DArray tex, uint lod) {\n" +
+                "int3 textureSize(Texture2DArray tex, SamplerState s, uint lod) {\n" +
                 "   uint sx,sy,sz,sl;\n" +
                 "   tex.GetDimensions(lod,sx,sy,sz,sl);\n" +
                 "   return int3(sx,sy,sz);\n" +
                 "}\n" +
-                "int3 textureSize(Texture2DArray<float> tex, uint lod) {\n" +
+                "int3 textureSize(Texture2DArray<float> tex, SamplerState s, uint lod) {\n" +
                 "   uint sx,sy,sz,sl;\n" +
                 "   tex.GetDimensions(lod,sx,sy,sz,sl);\n" +
                 "   return int3(sx,sy,sz);\n" +
                 "}\n" +
                 // 3d
-                "int3 textureSize(Texture3D tex, uint lod) {\n" +
+                "int3 textureSize(Texture3D tex, SamplerState s, uint lod) {\n" +
                 "   uint sx,sy,sz,sl;\n" +
                 "   tex.GetDimensions(lod,sx,sy,sz,sl);\n" +
                 "   return int3(sx,sy,sz);\n" +
@@ -683,6 +695,45 @@ class ShaderTranslator(val type: Int) {
         }
     }
 
+    private fun replaceTextureSamplers(function0: List<CharSequence>): List<CharSequence> {
+        val words = HashSet(function0)
+        val texMapKeys = texMap.keys.toHashSet()
+        if ("texture" in words || "textureLod" in words ||
+            texMapKeys.any { it in words } ||
+            uniforms.any2 { it.type in texMapKeys && it.name in words }
+        ) {
+            val function = ArrayList(function0)
+
+            // replace any Texture-name argument with two, name and name_s
+            val textureNames = uniforms
+                .filter { it.type in texMapKeys }
+                .map { it.name }
+                .toHashSet()
+
+            // replace any Texture-name parameter with two, name and name_s
+            var i = function.indexOf("(")
+            while (true) {
+                val type = function[i]
+                if (type in texMapKeys) {
+                    val name = function[i + 1]
+                    function.addAll(i + 2, listOf(",", "SamplerState", "${name}_s"))
+                    textureNames.add(name.toString())
+                } else if (type == ")") break
+                i++
+            }
+
+            while (true) {
+                if (i >= function.size) break
+                val name = function[i]
+                if (name in textureNames) {
+                    function.addAll(i + 1, listOf(",", "${name}_s"))
+                }
+                i++
+            }
+            return function
+        } else return function0
+    }
+
     private fun parse(tokens: ArrayList<CharSequence>) {
         var i = 0
 
@@ -729,7 +780,6 @@ class ShaderTranslator(val type: Int) {
                     // value, type, semicolon
                     i = tokens.indexOf2(";", i, false) + 1
                 }
-
                 "in" -> readVariables(inList)
                 "out" -> readVariables(outList)
                 "uniform" -> readVariables(uniforms)
@@ -742,7 +792,6 @@ class ShaderTranslator(val type: Int) {
                     constants.add(variable to value)
                     i = j
                 }
-
                 "layout" -> {
                     // layout(std140, shared, binding = 0)
                     if (tokens[i++] != "(") throw IllegalStateException("Expected (")
@@ -752,7 +801,6 @@ class ShaderTranslator(val type: Int) {
                     i++ // skip )
                     // todo use this data?
                 }
-
                 "flat" -> {
                     // todo implement this...
                 }
@@ -780,7 +828,8 @@ class ShaderTranslator(val type: Int) {
                                     "}" -> depth--
                                 }
                             }
-                            functions.add(tokens.subList(i0, i))
+                            val func = ArrayList(tokens.subList(i0, i))
+                            functions.add(replaceTextureSamplers(func))
                         } else {
                             // just declared function
                             // -> not supported, and we have to sort the functions ourselves by their dependencies
@@ -789,7 +838,6 @@ class ShaderTranslator(val type: Int) {
                         }
                     }
                 }
-
                 else -> throw NotImplementedError(tk.toString())
             }
         }
@@ -813,9 +861,8 @@ class ShaderTranslator(val type: Int) {
         }
 
         val funcOrder = funcByName.keys
-            .sortedByTopology { name -> dependencies[name]!! }
-            .withIndex()
-            .associate { it.value to it.index }
+            .sortedByTopology { name -> dependencies[name]!! }!!
+            .withIndex().associate { it.value to it.index }
 
         functions.sortBy {
             val name = it[it.indexOf("(") - 1]

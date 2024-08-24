@@ -1552,10 +1552,22 @@ public class GL11C {
         }
     }
 
-    public static void glBeginQuery(int target, int id) {
+    private static long beginQueryTime;
+    private static int timeQueryId;
+    private static HashMap<Integer, Long> queriedTimes = new HashMap<>();
+
+    public static void glBeginQuery(int target, int query) {
+        if (target == GL_TIME_ELAPSED) {
+            beginQueryTime = System.nanoTime();
+            timeQueryId = query;
+        }
     }
 
     public static void glEndQuery(int target) {
+        if (target == GL_TIME_ELAPSED) {
+            long dt = System.nanoTime() - beginQueryTime;
+            queriedTimes.put(timeQueryId, dt);
+        }
     }
 
     public static int glGetQueryObjecti(int id, int type) {
@@ -1564,11 +1576,11 @@ public class GL11C {
 
     public static long glGetQueryObjecti64(int id, int type) {
         // todo how do we implement these in Dx11?
-        if (type == GL_QUERY_RESULT_AVAILABLE) {
-            return 0;
-        } else if (type == GL_QUERY_RESULT) {
-            return 0;
-        } else return -1;
+        Long dt = queriedTimes.get(id);
+        if (dt != null) {
+            if (type == GL_QUERY_RESULT_AVAILABLE) return 1;
+            else return (int) (long) dt;
+        } else return 0;
     }
 
 }
