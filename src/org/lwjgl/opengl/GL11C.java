@@ -574,11 +574,11 @@ public class GL11C {
     }
 
     public static void glEnableVertexAttribArray(int index) {
-        currentVAO.enabled |= 1L << index;
+        currentVAO.enabled |= 1 << index;
     }
 
     public static void glDisableVertexAttribArray(int index) {
-        currentVAO.enabled &= ~(1L << index);
+        currentVAO.enabled &= ~(1 << index);
     }
 
     private static final LongBuffer texBuffer =
@@ -830,11 +830,11 @@ public class GL11C {
 
     private static final Texture[] boundTextures = new Texture[32];
     public static Texture currentTexture = nullTexture;
-    private static final int[] textureTypes = new int[32];
+    //private static final int[] textureTypes = new int[32];
 
     public static void glBindTexture(int type, int tex) {
         currentTexture = boundTextures[activeSlot] = textures.get(tex);
-        textureTypes[activeSlot] = type;
+        //textureTypes[activeSlot] = type;
     }
 
     public static void glActiveTexture(int slot) {
@@ -1482,18 +1482,22 @@ public class GL11C {
             dst.putFloat(pos, src.get(j));
             dst.putFloat(pos + 4, src.get(j + 1));
             dst.putFloat(pos + 8, src.get(j + 2));
+            dst.putFloat(pos + 12, 0f);
 
             dst.putFloat(pos + 16, src.get(j + 3));
             dst.putFloat(pos + 20, src.get(j + 4));
             dst.putFloat(pos + 24, src.get(j + 5));
+            dst.putFloat(pos + 28, 0f);
 
             dst.putFloat(pos + 32, src.get(j + 6));
             dst.putFloat(pos + 36, src.get(j + 7));
             dst.putFloat(pos + 40, src.get(j + 8));
+            dst.putFloat(pos + 44, 0f);
 
             dst.putFloat(pos + 48, src.get(j + 9));
             dst.putFloat(pos + 52, src.get(j + 10));
             dst.putFloat(pos + 56, src.get(j + 11));
+            dst.putFloat(pos + 60, 1f);
 
             pos += 64;
             j += 12;
@@ -1554,7 +1558,7 @@ public class GL11C {
 
     private static long beginQueryTime;
     private static int timeQueryId;
-    private static HashMap<Integer, Long> queriedTimes = new HashMap<>();
+    private static final HashMap<Integer, Long> queriedTimes = new HashMap<>();
 
     public static void glBeginQuery(int target, int query) {
         if (target == GL_TIME_ELAPSED) {

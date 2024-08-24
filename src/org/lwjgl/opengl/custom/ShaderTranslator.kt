@@ -269,6 +269,10 @@ class ShaderTranslator(val type: Int) {
             }
         }
 
+        if (isFragment) {
+            inputs.add(listOf("VS_Input", "uint", "gl_SampleID"))
+        }
+
         val vsOutputList = if (isVertex) outputs else inputs
         r.append("struct VS_Output { // varyings\n")
         var ji = 0
@@ -507,6 +511,7 @@ class ShaderTranslator(val type: Int) {
             .replace("int4(", "makeInt4(")
             .replace("texture(", "sampleTexture(")
             .replace("textureLod(", "sampleTextureLod(")
+            .replace("gl_SampleID)", "int(gl_SampleID))")
 
         str = "" +
                 "float2 makeFloat2(float x) { return float2(x,x); }\n" +
